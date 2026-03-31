@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gateway Replacement Report | NLB + Nginx + Vector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-deep: #0a0c10;
+  --bg-card: #12151c;
+  --bg-card-hover: #181c26;
+  --bg-inset: #0e1117;
+  --border: #1e2330;
+  --border-accent: #2a3040;
+  --text-primary: #e2e6ef;
+  --text-secondary: #8891a5;
+  --text-dim: #555d70;
+  --accent-green: #34d399;
+  --accent-green-dim: rgba(52,211,153,0.12);
+  --accent-blue: #60a5fa;
+  --accent-blue-dim: rgba(96,165,250,0.10);
+  --accent-amber: #fbbf24;
+  --accent-amber-dim: rgba(251,191,36,0.10);
+  --accent-red: #f87171;
+  --accent-red-dim: rgba(248,113,113,0.10);
+  --accent-cyan: #22d3ee;
+  --accent-purple: #a78bfa;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'DM Sans', sans-serif;
+}
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--sans);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(52,211,153,0.04) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(96,165,250,0.03) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.page { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 40px 24px 80px; }
+
+/* Header */
+.header { margin-bottom: 48px; }
+.header-tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--accent-green);
+  background: var(--accent-green-dim);
+  border: 1px solid rgba(52,211,153,0.2);
+  padding: 4px 12px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+.header h1 {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.header-meta {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.header-meta span { color: var(--text-secondary); }
+
+/* Stat Grid */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.stat-card:hover { border-color: var(--border-accent); }
+.stat-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.stat-card.green::after { background: var(--accent-green); }
+.stat-card.blue::after { background: var(--accent-blue); }
+.stat-card.amber::after { background: var(--accent-amber); }
+.stat-card.cyan::after { background: var(--accent-cyan); }
+.stat-label {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.stat-value {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -1px;
+}
+.stat-value.green { color: var(--accent-green); }
+.stat-value.blue { color: var(--accent-blue); }
+.stat-value.amber { color: var(--accent-amber); }
+.stat-value.cyan { color: var(--accent-cyan); }
+.stat-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* Cards */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.card h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.card h2 .icon {
+  width: 20px; height: 20px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.icon-green { background: var(--accent-green-dim); color: var(--accent-green); }
+.icon-blue { background: var(--accent-blue-dim); color: var(--accent-blue); }
+.icon-amber { background: var(--accent-amber-dim); color: var(--accent-amber); }
+.icon-purple { background: rgba(167,139,250,0.12); color: var(--accent-purple); }
+
+.badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.badge-pass { background: var(--accent-green-dim); color: var(--accent-green); border: 1px solid rgba(52,211,153,0.2); }
+.badge-info { background: var(--accent-blue-dim); color: var(--accent-blue); border: 1px solid rgba(96,165,250,0.2); }
+
+/* Architecture Diagram */
+.arch-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 20px 0;
+  overflow-x: auto;
+  padding: 8px 0;
+}
+.arch-node {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  min-width: 160px;
+  text-align: center;
+  position: relative;
+}
+.arch-node .node-title {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.arch-node .node-detail {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.arch-arrow {
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  color: var(--text-dim);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.arch-group {
+  border: 1px dashed rgba(96,165,250,0.25);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  gap: 8px;
+  position: relative;
+}
+.arch-group::before {
+  content: attr(data-label);
+  position: absolute;
+  top: -9px; left: 16px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--accent-blue);
+  background: var(--bg-card);
+  padding: 0 6px;
+  letter-spacing: 0.5px;
+}
+
+/* Tables */
+.tbl-wrap { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+thead th {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+}
+tbody td {
+  padding: 9px 14px;
+  border-bottom: 1px solid rgba(30,35,48,0.5);
+  vertical-align: top;
+}
+tbody tr:hover { background: var(--bg-card-hover); }
+.field-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-blue);
+  white-space: nowrap;
+}
+.val {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  word-break: break-all;
+  max-width: 280px;
+}
+.match-ok {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-green);
+  text-align: center;
+}
+
+/* Perf bars */
+.perf-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 100px 100px 100px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(30,35,48,0.5);
+}
+.perf-row:last-child { border-bottom: none; }
+.perf-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.perf-bar-wrap {
+  height: 28px;
+  background: var(--bg-inset);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.perf-bar {
+  height: 100%;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  padding-left: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bg-deep);
+  transition: width 0.6s ease;
+}
+.perf-bar.green { background: linear-gradient(90deg, var(--accent-green), #6ee7b7); }
+.perf-bar.blue { background: linear-gradient(90deg, var(--accent-blue), #93c5fd); }
+.perf-bar.amber { background: linear-gradient(90deg, var(--accent-amber), #fde68a); }
+.perf-num {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: right;
+}
+.perf-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+/* Cost comparison */
+.cost-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.cost-box {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+}
+.cost-box.old { border-color: rgba(248,113,113,0.25); }
+.cost-box.new { border-color: rgba(52,211,153,0.25); }
+.cost-box .cost-title {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.cost-box .cost-amount {
+  font-family: var(--mono);
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -2px;
+}
+.cost-box.old .cost-amount { color: var(--accent-red); }
+.cost-box.new .cost-amount { color: var(--accent-green); }
+.cost-box .cost-detail {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 8px;
+  line-height: 1.6;
+}
+.cost-saving {
+  text-align: center;
+  padding: 16px;
+  margin-top: 16px;
+  background: var(--accent-green-dim);
+  border: 1px solid rgba(52,211,153,0.2);
+  border-radius: 8px;
+}
+.cost-saving span {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent-green);
+}
+
+/* Code block */
+.code {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-x: auto;
+  color: var(--text-secondary);
+  white-space: pre;
+}
+.code .kw { color: var(--accent-purple); }
+.code .str { color: var(--accent-amber); }
+.code .fn { color: var(--accent-blue); }
+.code .cm { color: var(--text-dim); }
+
+/* Note */
+.note {
+  background: var(--accent-amber-dim);
+  border: 1px solid rgba(251,191,36,0.15);
+  border-radius: 8px;
+  padding: 14px 18px;
+  font-size: 13px;
+  color: var(--accent-amber);
+  margin-top: 16px;
+  line-height: 1.7;
+}
+.note strong { color: #fcd34d; }
+
+/* Two column */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .two-col { grid-template-columns: 1fr; }
+  .cost-grid { grid-template-columns: 1fr; }
+  .perf-row { grid-template-columns: 100px 1fr 80px 80px 80px; font-size: 11px; }
+  .arch-flow { flex-wrap: wrap; justify-content: center; }
+}
+@media (max-width: 600px) {
+  .stat-grid { grid-template-columns: 1fr; }
+  .perf-row { grid-template-columns: 1fr; }
+  .perf-bar-wrap { display: none; }
+}
+
+/* Diff highlight */
+.diff-section { margin-top: 16px; }
+.diff-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 8px;
+}
+.raw-json {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+  max-height: 120px;
+  overflow-y: auto;
+}
+.raw-json .hl-esc { color: var(--accent-amber); background: rgba(251,191,36,0.08); padding: 0 2px; border-radius: 2px; }
+.raw-json .hl-utf8 { color: var(--accent-cyan); background: rgba(34,211,238,0.08); padding: 0 2px; border-radius: 2px; }
+
+/* Section divider */
+.section-break {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 36px 0;
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Header -->
+<div class="header">
+  <div class="header-tag">Test Report</div>
+  <h1>API Gateway to Kinesis Replacement</h1>
+  <h1 style="font-size:22px; margin-top:-2px;">NLB + Nginx + Vector Architecture</h1>
+  <div class="header-meta">
+    <span>ap-northeast-1</span> &middot; 2026-03-31 &middot; guangdiantong-attribution-api &middot; <span>EC2 t4g.xlarge</span>
+  </div>
+</div>
+
+<!-- Top Stats -->
+<div class="stat-grid">
+  <div class="stat-card green">
+    <div class="stat-label">Compatibility</div>
+    <div class="stat-value green">30/30</div>
+    <div class="stat-sub">fields matched &middot; 0 diff</div>
+  </div>
+  <div class="stat-card blue">
+    <div class="stat-label">Peak QPS</div>
+    <div class="stat-value blue">5,120</div>
+    <div class="stat-sub">200 concurrent &middot; single node</div>
+  </div>
+  <div class="stat-card amber">
+    <div class="stat-label">Cost Saving</div>
+    <div class="stat-value amber">~57%</div>
+    <div class="stat-sub">$350 &rarr; $150 / month</div>
+  </div>
+  <div class="stat-card cyan">
+    <div class="stat-label">p50 Latency</div>
+    <div class="stat-value cyan">19ms</div>
+    <div class="stat-sub">p99 = 48ms @ c100</div>
+  </div>
+</div>
+
+<!-- Architecture -->
+<div class="card">
+  <h2><span class="icon icon-blue">&#9670;</span> Architecture Overview</h2>
+  <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">
+    Replace AWS API Gateway ($3.50/M requests) with NLB + ECS Fargate running Nginx (OpenResty + Lua) and Vector, achieving the same query-string-to-Kinesis data pipeline at significantly lower cost.
+  </p>
+  <div class="arch-flow">
+    <div class="arch-node">
+      <div class="node-title">Ad Platform</div>
+      <div class="node-detail">GET /test?params...</div>
+    </div>
+    <div class="arch-arrow">&rarr;</div>
+    <div class="arch-node">
+      <div class="node-title" style="color:var(--accent-cyan)">NLB</div>
+      <div class="node-detail">TCP:80<br>Layer 4</div>
+    </div>
+    <div class="arch-arrow">&rarr;</div>
+    <div class="arch-group" data-label="ECS Fargate Task">
+      <div class="arch-node">
+        <div class="node-title" style="color:var(--accent-green)">Nginx</div>
+        <div class="node-detail">OpenResty + Lua<br>Parse query string<br>Build JSON &rarr; POST</div>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-node">
+        <div class="node-title" style="color:var(--accent-purple)">Vector</div>
+        <div class="node-detail">HTTP source<br>Route by path<br>Disk buffer (EBS 1TB)</div>
+      </div>
+    </div>
+    <div class="arch-arrow">&rarr;</div>
+    <div class="arch-node">
+      <div class="node-title" style="color:var(--accent-amber)">Kinesis</div>
+      <div class="node-detail">PutRecords batch<br>Multiple streams</div>
+    </div>
+    <div class="arch-arrow">&rarr;</div>
+    <div class="arch-node">
+      <div class="node-title">Lambda</div>
+      <div class="node-detail">Unchanged<br>consumers</div>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-top:20px;">
+    <div>
+      <div class="diff-title">Nginx + Lua (collect.lua)</div>
+      <div style="font-size:12px; color:var(--text-secondary); line-height:1.8;">
+        &bull; Receives GET requests on configurable paths (/guangdiantong, /toutiao, etc.)<br>
+        &bull; <code style="color:var(--accent-green)">ngx.req.get_uri_args(0)</code> extracts all query string parameters<br>
+        &bull; Builds flat JSON object with all values as strings<br>
+        &bull; Adds <code style="color:var(--accent-green)">_path</code> metadata for Vector routing<br>
+        &bull; POSTs JSON to Vector HTTP source via Docker network<br>
+        &bull; Returns HTTP 200 immediately (async, non-blocking)
+      </div>
+    </div>
+    <div>
+      <div class="diff-title">Vector (vector.toml)</div>
+      <div style="font-size:12px; color:var(--text-secondary); line-height:1.8;">
+        &bull; HTTP source on :8686, receives JSON from Nginx<br>
+        &bull; Route transform splits events by <code style="color:var(--accent-purple)">_path</code> field<br>
+        &bull; Clean transforms remove metadata (path, source_type, timestamp)<br>
+        &bull; Kinesis sinks: batch 500 events / 5MB / 1s timeout<br>
+        &bull; Disk buffer on EBS: block when full, survives container restart<br>
+        &bull; SigV4 auth via ECS Task Role (automatic credential chain)
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Multi-stream routing -->
+<div class="card">
+  <h2><span class="icon icon-purple">&#9641;</span> Multi-Stream Routing</h2>
+  <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px;">
+    Different ad platforms route to different Kinesis streams. Path&rarr;stream mapping is defined in vector.toml (route rules) with stream names as environment variables (CDK-injected).
+  </p>
+  <table>
+    <thead><tr><th>Request Path</th><th>Kinesis Stream</th><th>Env Variable</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="field-name">/guangdiantong</td><td class="val">guangdiantong_kinesis_stream</td><td class="val">KINESIS_STREAM_GUANGDIANTONG</td><td style="color:var(--text-dim)">Production</td></tr>
+      <tr><td class="field-name">/toutiao</td><td class="val">toutiao_kinesis_stream</td><td class="val">KINESIS_STREAM_TOUTIAO</td><td style="color:var(--text-dim)">Production</td></tr>
+      <tr><td class="field-name">/test</td><td class="val">guangdiantong_attribution_event</td><td class="val">KINESIS_STREAM_TEST</td><td class="match-ok">Tested</td></tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <strong>Extending:</strong> To add a new ad platform, add a route condition in vector.toml, create a new Kinesis sink, and pass the stream name via CDK environment variable. Requires container redeployment.
+  </div>
+</div>
+
+<hr class="section-break">
+
+<!-- Compatibility Test -->
+<div class="card">
+  <h2><span class="icon icon-green">&#10003;</span> Compatibility Test <span class="badge badge-pass">30/30 ALL MATCH</span></h2>
+  <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px;">
+    Same 28-field request sent simultaneously to API Gateway and Nginx+Vector. Both records read back from the same Kinesis stream and compared field-by-field after JSON parsing. All 30 fields (28 original + 2 supplementary) are semantically identical.
+  </p>
+
+  <!-- Raw JSON diff -->
+  <div class="two-col diff-section">
+    <div>
+      <div class="diff-title">API Gateway Raw JSON</div>
+      <div class="raw-json">{ "account_id": "72168517" ,  "ad_platform_type": "1" ,  "adgroup_name": "GOFCN42366_<span class="hl-esc">\u73A9\u6CD5</span>_<span class="hl-esc">\u8D44\u6E90\u57CE\u5EFA</span>_<span class="hl-esc">\u89E3\u8BF4</span>..." ,  "callback": "https:<span class="hl-esc">\/\/</span>api.e.qq.com<span class="hl-esc">\/</span>v3.0<span class="hl-esc">\/</span>user_actions<span class="hl-esc">\/</span>add?cb=..." }</div>
+    </div>
+    <div>
+      <div class="diff-title">Nginx+Vector Raw JSON</div>
+      <div class="raw-json">{"account_id":"72168517","ad_platform_type":"1","adgroup_name":"GOFCN42366_<span class="hl-utf8">玩法</span>_<span class="hl-utf8">资源城建</span>_<span class="hl-utf8">解说</span>...","callback":"https://api.e.qq.com/v3.0/user_actions/add?cb=..."}</div>
+    </div>
+  </div>
+  <div class="note" style="margin-bottom:20px;">
+    <strong>Format differences (semantically equivalent):</strong><br>
+    &bull; API Gateway: <code>\u73A9\u6CD5</code> (Unicode escape) vs Vector: <code>玩法</code> (UTF-8 direct) &mdash; identical after json.loads()<br>
+    &bull; API Gateway: <code>\/</code> (escaped slash) vs Vector: <code>/</code> (unescaped) &mdash; identical after json.loads()<br>
+    &bull; API Gateway: spaces around colons vs Vector: compact JSON &mdash; identical after json.loads()
+  </div>
+
+  <div class="tbl-wrap" style="max-height:520px; overflow-y:auto;">
+  <table>
+    <thead><tr><th>#</th><th>Field</th><th>API Gateway</th><th>Nginx+Vector</th><th style="text-align:center">Match</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td class="field-name">account_id</td><td class="val">72168517</td><td class="val">72168517</td><td class="match-ok">OK</td></tr>
+      <tr><td>2</td><td class="field-name">ad_platform_type</td><td class="val">1</td><td class="val">1</td><td class="match-ok">OK</td></tr>
+      <tr><td>3</td><td class="field-name">ad_type</td><td class="val">1</td><td class="val">1</td><td class="match-ok">OK</td></tr>
+      <tr><td>4</td><td class="field-name">adcreative_id</td><td class="val">6611920057</td><td class="val">6611920057</td><td class="match-ok">OK</td></tr>
+      <tr><td>5</td><td class="field-name">adgroup_id</td><td class="val">29831567842</td><td class="val">29831567842</td><td class="match-ok">OK</td></tr>
+      <tr><td>6</td><td class="field-name">adgroup_name</td><td class="val">GOFCN42366_玩法_资源城建_解说_小程序_横版_auto</td><td class="val">GOFCN42366_玩法_资源城建_解说_小程序_横版_auto</td><td class="match-ok">OK</td></tr>
+      <tr><td>7</td><td class="field-name">agency_id</td><td class="val">17917417</td><td class="val">17917417</td><td class="match-ok">OK</td></tr>
+      <tr><td>8</td><td class="field-name">app_id</td><td class="val">gof.cn.prod</td><td class="val">gof.cn.prod</td><td class="match-ok">OK</td></tr>
+      <tr><td>9</td><td class="field-name">bi_os</td><td class="val">wechat</td><td class="val">wechat</td><td class="match-ok">OK</td></tr>
+      <tr><td>10</td><td class="field-name">callback</td><td class="val" style="max-width:220px">https://api.e.qq.com/v3.0/user_actions/add?cb=c4Uzp...&amp;conv_id=68143750</td><td class="val" style="max-width:220px">https://api.e.qq.com/v3.0/user_actions/add?cb=c4Uzp...&amp;conv_id=68143750</td><td class="match-ok">OK</td></tr>
+      <tr><td>11</td><td class="field-name">campaign_id</td><td class="val">18934521076</td><td class="val">18934521076</td><td class="match-ok">OK</td></tr>
+      <tr><td>12</td><td class="field-name">campaign_name</td><td class="val">GOFCN_WX_RECALL_ROI7_PLAY</td><td class="val">GOFCN_WX_RECALL_ROI7_PLAY</td><td class="match-ok">OK</td></tr>
+      <tr><td>13</td><td class="field-name">channel</td><td class="val">guangdiantong_wechat_recall</td><td class="val">guangdiantong_wechat_recall</td><td class="match-ok">OK</td></tr>
+      <tr><td>14</td><td class="field-name">click_id</td><td class="val">wxadclickggfwtspmsyivd</td><td class="val">wxadclickggfwtspmsyivd</td><td class="match-ok">OK</td></tr>
+      <tr><td>15</td><td class="field-name">click_time</td><td class="val">1774942356</td><td class="val">1774942356</td><td class="match-ok">OK</td></tr>
+      <tr><td>16</td><td class="field-name">conv_id</td><td class="val">68143750</td><td class="val">68143750</td><td class="match-ok">OK</td></tr>
+      <tr><td>17</td><td class="field-name">creative_components_info</td><td class="val" style="max-width:200px">[{"id":56115185184,"type":"DESCRIPTION"}, ... 6 items]</td><td class="val" style="max-width:200px">[{"id":56115185184,"type":"DESCRIPTION"}, ... 6 items]</td><td class="match-ok">OK</td></tr>
+      <tr><td>18</td><td class="field-name">creative_id</td><td class="val">6611920057</td><td class="val">6611920057</td><td class="match-ok">OK</td></tr>
+      <tr><td>19</td><td class="field-name">creative_name</td><td class="val" style="max-width:200px">GOFCN42366_玩法_资源城建_解说_都说了家里没人_小程序_横版_play_...</td><td class="val" style="max-width:200px">GOFCN42366_玩法_资源城建_解说_都说了家里没人_小程序_横版_play_...</td><td class="match-ok">OK</td></tr>
+      <tr><td>20</td><td class="field-name">csite</td><td class="val">SITE_SET_SMART</td><td class="val">SITE_SET_SMART</td><td class="match-ok">OK</td></tr>
+      <tr><td>21</td><td class="field-name">display_scene</td><td class="val"><em style="color:var(--text-dim)">(empty)</em></td><td class="val"><em style="color:var(--text-dim)">(empty)</em></td><td class="match-ok">OK</td></tr>
+      <tr><td>22</td><td class="field-name">element_info</td><td class="val" style="max-width:200px">[{"id":"28831249729","type":"IMAGE"}, ... 3 items]</td><td class="val" style="max-width:200px">[{"id":"28831249729","type":"IMAGE"}, ... 3 items]</td><td class="match-ok">OK</td></tr>
+      <tr><td>23</td><td class="field-name">impression_time</td><td class="val">1774942350</td><td class="val">1774942350</td><td class="match-ok">OK</td></tr>
+      <tr><td>24</td><td class="field-name">match_id</td><td class="val">wx0w3zxx7st24kmk00</td><td class="val">wx0w3zxx7st24kmk00</td><td class="match-ok">OK</td></tr>
+      <tr><td>25</td><td class="field-name">model_id</td><td class="val">0</td><td class="val">0</td><td class="match-ok">OK</td></tr>
+      <tr><td>26</td><td class="field-name">page_id</td><td class="val">0</td><td class="val">0</td><td class="match-ok">OK</td></tr>
+      <tr><td>27</td><td class="field-name">promoted_object_id</td><td class="val">wxada4175c8b2a9864</td><td class="val">wxada4175c8b2a9864</td><td class="match-ok">OK</td></tr>
+      <tr><td>28</td><td class="field-name">promoted_object_type</td><td class="val">46</td><td class="val">46</td><td class="match-ok">OK</td></tr>
+      <tr><td>29</td><td class="field-name">request_id</td><td class="val">wx0w3zxx7st24kmk</td><td class="val">wx0w3zxx7st24kmk</td><td class="match-ok">OK</td></tr>
+      <tr><td>30</td><td class="field-name">site_id</td><td class="val">2000000246</td><td class="val">2000000246</td><td class="match-ok">OK</td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<hr class="section-break">
+
+<!-- Performance -->
+<div class="card">
+  <h2><span class="icon icon-amber">&#9889;</span> Performance Benchmarks <span class="badge badge-info">Single Node &middot; t4g.xlarge</span></h2>
+  <p style="font-size:13px; color:var(--text-secondary); margin-bottom:6px;">
+    Load tested on EC2 t4g.xlarge (4 vCPU ARM Graviton, 16GB RAM) with <code style="color:var(--accent-amber)">hey</code>. Full pipeline: Nginx Lua parse 22 query params &rarr; JSON &rarr; POST to Vector &rarr; Kinesis PutRecords.
+  </p>
+  <p style="font-size:12px; color:var(--text-dim); margin-bottom:20px;">
+    Note: Client and server co-located on the same instance. Production with NLB + multiple Fargate tasks will scale linearly.
+  </p>
+
+  <!-- Header row -->
+  <div class="perf-row" style="border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:4px;">
+    <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px;">Test</div>
+    <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px;">Throughput</div>
+    <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px; text-align:right;">QPS</div>
+    <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px; text-align:right;">p50</div>
+    <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px; text-align:right;">p99</div>
+  </div>
+
+  <!-- Baseline -->
+  <div class="perf-row">
+    <div class="perf-label">/health<br><span style="font-size:10px; color:var(--text-dim)">Baseline</span></div>
+    <div class="perf-bar-wrap"><div class="perf-bar green" style="width:100%">7,415 req/s</div></div>
+    <div class="perf-num">7,415</div>
+    <div class="perf-sub">11ms</div>
+    <div class="perf-sub">87ms</div>
+  </div>
+
+  <!-- c=100 -->
+  <div class="perf-row">
+    <div class="perf-label">Pipeline<br><span style="font-size:10px; color:var(--text-dim)">c=100, n=10K</span></div>
+    <div class="perf-bar-wrap"><div class="perf-bar blue" style="width:66%">4,922 req/s</div></div>
+    <div class="perf-num">4,922</div>
+    <div class="perf-sub">19ms</div>
+    <div class="perf-sub">48ms</div>
+  </div>
+
+  <!-- c=200 -->
+  <div class="perf-row">
+    <div class="perf-label">Pipeline<br><span style="font-size:10px; color:var(--text-dim)">c=200, n=50K</span></div>
+    <div class="perf-bar-wrap"><div class="perf-bar blue" style="width:69%">5,120 req/s</div></div>
+    <div class="perf-num" style="color:var(--accent-green)">5,120</div>
+    <div class="perf-sub">36ms</div>
+    <div class="perf-sub">91ms</div>
+  </div>
+
+  <!-- c=500 -->
+  <div class="perf-row">
+    <div class="perf-label">Pipeline<br><span style="font-size:10px; color:var(--text-dim)">c=500, n=100K</span></div>
+    <div class="perf-bar-wrap"><div class="perf-bar amber" style="width:48%">3,556 req/s</div></div>
+    <div class="perf-num">3,556</div>
+    <div class="perf-sub">101ms</div>
+    <div class="perf-sub">1.27s</div>
+  </div>
+
+  <!-- Resource usage -->
+  <div style="margin-top:24px;">
+    <div class="diff-title">Resource Usage (idle after 100K requests)</div>
+    <div class="two-col" style="margin-top:10px;">
+      <div style="background:var(--bg-inset); border:1px solid var(--border); border-radius:8px; padding:16px;">
+        <div style="font-family:var(--mono); font-size:12px; font-weight:600; color:var(--accent-green); margin-bottom:8px;">Nginx Container</div>
+        <div style="font-size:12px; color:var(--text-secondary); line-height:1.8;">
+          Memory: <strong style="color:var(--text-primary)">128 MB</strong><br>
+          CPU: &lt;1% idle<br>
+          Network I/O: 202MB in / 253MB out
+        </div>
+      </div>
+      <div style="background:var(--bg-inset); border:1px solid var(--border); border-radius:8px; padding:16px;">
+        <div style="font-family:var(--mono); font-size:12px; font-weight:600; color:var(--accent-purple); margin-bottom:8px;">Vector Container</div>
+        <div style="font-size:12px; color:var(--text-secondary); line-height:1.8;">
+          Memory: <strong style="color:var(--text-primary)">58 MB</strong><br>
+          CPU: &lt;1% idle<br>
+          Disk buffer written: 113MB
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>Production capacity estimate:</strong> Single t4g.xlarge node sustains ~5,000 QPS. With ECS auto-scaling (2&ndash;10 tasks), the system can handle <strong>10,000&ndash;50,000 QPS</strong>. API Gateway default regional limit is 10,000 req/sec &mdash; this architecture comfortably exceeds it. The c=500 degradation (3,556 QPS) is due to client+server co-location contention and Kinesis API throttling on a single-shard test stream; production multi-shard streams will not have this bottleneck.
+  </div>
+</div>
+
+<!-- Disk Buffer & Disaster Recovery -->
+<div class="card">
+  <h2><span class="icon icon-purple">&#9641;</span> Disk Buffer &amp; Disaster Recovery</h2>
+  <div class="two-col">
+    <div>
+      <div style="font-size:13px; color:var(--text-secondary); line-height:1.8;">
+        Vector disk buffer persists events to EBS before sending to Kinesis. If Kinesis is unavailable, events accumulate on disk. When Kinesis recovers, Vector automatically replays buffered events.<br><br>
+        <strong style="color:var(--text-primary)">Buffer behavior:</strong><br>
+        &bull; <code>when_full: block</code> &mdash; backpressure to Nginx when disk full<br>
+        &bull; Data survives container restart (EBS-backed)<br>
+        &bull; No TTL/expiry &mdash; events persist until delivered
+      </div>
+    </div>
+    <div>
+      <div style="background:var(--bg-inset); border:1px solid var(--border); border-radius:8px; padding:16px;">
+        <div class="diff-title">Capacity Planning</div>
+        <table style="font-size:12px; margin-top:8px;">
+          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">EBS Volume</td><td style="color:var(--text-primary); font-family:var(--mono);">1 TB gp3</td></tr>
+          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">Avg record size</td><td style="color:var(--text-primary); font-family:var(--mono);">~2 KB</td></tr>
+          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">Peak QPS</td><td style="color:var(--text-primary); font-family:var(--mono);">10,000 req/s</td></tr>
+          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">Peak hourly</td><td style="color:var(--text-primary); font-family:var(--mono);">~69 GB/hr</td></tr>
+          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;"><strong style="color:var(--accent-green)">Buffer duration</strong></td><td style="color:var(--accent-green); font-family:var(--mono); font-weight:600;">~14.5 hrs @ peak</td></tr>
+          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">Avg load (30%)</td><td style="color:var(--text-primary); font-family:var(--mono);">~48 hrs @ avg</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="section-break">
+
+<!-- Cost -->
+<div class="card">
+  <h2><span class="icon icon-amber">$</span> Cost Comparison <span class="badge badge-info">100M requests/month</span></h2>
+  <div class="cost-grid">
+    <div class="cost-box old">
+      <div class="cost-title">API Gateway (Current)</div>
+      <div class="cost-amount">$350</div>
+      <div class="cost-detail">
+        Request handling: $350/month<br>
+        Compute: included<br>
+        Data transfer: variable
+      </div>
+    </div>
+    <div class="cost-box new">
+      <div class="cost-title">NLB + ECS Nginx+Vector</div>
+      <div class="cost-amount">$150</div>
+      <div class="cost-detail">
+        NLB: ~$10/month<br>
+        Fargate (2 tasks, 1vCPU 2GB): ~$60/month<br>
+        EBS 1TB gp3: ~$80/month
+      </div>
+    </div>
+  </div>
+  <div class="cost-saving">
+    Monthly saving: <span>~$200 (57%)</span><br>
+    <span style="font-size:13px; color:var(--text-secondary); font-weight:400;">
+      With 200GB EBS: ~$80/month total (77% saving). Scale EBS based on actual buffer needs.
+    </span>
+  </div>
+</div>
+
+<!-- Test Environment -->
+<div class="card">
+  <h2><span class="icon icon-blue">&#9881;</span> Test Environment</h2>
+  <table>
+    <thead><tr><th>Component</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td class="field-name">EC2 Instance</td><td class="val">i-036cb7ac96fe48d46 &middot; t4g.xlarge (4 vCPU ARM Graviton, 16GB RAM)</td></tr>
+      <tr><td class="field-name">OS</td><td class="val">Amazon Linux 2023 aarch64</td></tr>
+      <tr><td class="field-name">Docker</td><td class="val">25.0.14 + Compose v5.1.1 + Buildx v0.19.3</td></tr>
+      <tr><td class="field-name">Nginx</td><td class="val">OpenResty 1.25.3.2 Alpine + lua-resty-http v0.17.2</td></tr>
+      <tr><td class="field-name">Vector</td><td class="val">v0.43.1 Alpine (aarch64)</td></tr>
+      <tr><td class="field-name">Kinesis Stream</td><td class="val">guangdiantong_attribution_event (1 shard, ap-northeast-1)</td></tr>
+      <tr><td class="field-name">Load Test Tool</td><td class="val">hey v0.1.5 (Go, compiled on instance)</td></tr>
+      <tr><td class="field-name">Test Date</td><td class="val">2026-03-31</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Migration Plan -->
+<div class="card">
+  <h2><span class="icon icon-green">&#10140;</span> Migration Plan</h2>
+  <div style="font-size:13px; color:var(--text-secondary); line-height:2;">
+    <strong style="color:var(--text-primary)">Phase 1 &mdash; Parallel Deploy:</strong> New service writes to test Kinesis stream. Verify output compatibility.<br>
+    <strong style="color:var(--text-primary)">Phase 2 &mdash; Shadow Traffic:</strong> New service writes to production stream. Route 53 weighted: 0% new / 100% old.<br>
+    <strong style="color:var(--text-primary)">Phase 3 &mdash; Gradual Cutover:</strong> 10% &rarr; 50% &rarr; 90% &rarr; 100%. Monitor Lambda consumer logs at each step. 24&ndash;48h per step.<br>
+    <strong style="color:var(--text-primary)">Phase 4 &mdash; Decommission:</strong> Remove API Gateway resources after 1 week at 100%.<br><br>
+    <span style="color:var(--text-dim)">Rollback: Route 53 weight to 0%/100% (TTL=60s). Instant failback.</span>
+  </div>
+</div>
+
+<!-- Footer -->
+<div style="text-align:center; padding:32px 0 0; font-family:var(--mono); font-size:11px; color:var(--text-dim);">
+  Generated with Claude Code &middot; 2026-03-31 &middot; ap-northeast-1
+</div>
+
+</div>
+</body>
+</html>

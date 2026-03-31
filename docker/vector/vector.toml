@@ -1,0 +1,127 @@
+data_dir = "/var/lib/vector"
+
+# ──────────────────────────────────────────
+# Source: receive JSON from Nginx Lua
+# ──────────────────────────────────────────
+[sources.nginx_events]
+type = "http_server"
+address = "0.0.0.0:8686"
+decoding.codec = "json"
+
+# ──────────────────────────────────────────
+# Transform: add partition key, extract route path
+# ──────────────────────────────────────────
+[transforms.enrich]
+type = "remap"
+inputs = ["nginx_events"]
+source = '''
+._route_path = del(._path)
+'''
+
+# ──────────────────────────────────────────
+# Transform: route by request path to different streams
+# ──────────────────────────────────────────
+[transforms.route_by_path]
+type = "route"
+inputs = ["enrich"]
+
+  [transforms.route_by_path.route]
+  guangdiantong = '._route_path == "/guangdiantong"'
+  toutiao = '._route_path == "/toutiao"'
+  test = '._route_path == "/test"'
+
+# ──────────────────────────────────────────
+# Transform: clean metadata fields before sending to Kinesis
+# ──────────────────────────────────────────
+[transforms.clean_guangdiantong]
+type = "remap"
+inputs = ["route_by_path.guangdiantong"]
+source = '''
+del(._route_path)
+del(.partition_key)
+del(.path)
+del(.source_type)
+del(.timestamp)
+'''
+
+[transforms.clean_toutiao]
+type = "remap"
+inputs = ["route_by_path.toutiao"]
+source = '''
+del(._route_path)
+del(.partition_key)
+del(.path)
+del(.source_type)
+del(.timestamp)
+'''
+
+[transforms.clean_test]
+type = "remap"
+inputs = ["route_by_path.test"]
+source = '''
+del(._route_path)
+del(.partition_key)
+del(.path)
+del(.source_type)
+del(.timestamp)
+'''
+
+# ──────────────────────────────────────────
+# Sinks: Kinesis streams with disk buffer
+# ──────────────────────────────────────────
+[sinks.kinesis_guangdiantong]
+type = "aws_kinesis_streams"
+inputs = ["clean_guangdiantong"]
+region = "${KINESIS_REGION:?}"
+stream_name = "${KINESIS_STREAM_GUANGDIANTONG:?}"
+# partition_key auto-generated as random 16-byte value when not specified
+encoding.codec = "json"
+compression = "none"
+
+  [sinks.kinesis_guangdiantong.buffer]
+  type = "disk"
+  max_size = 10737418240
+  when_full = "block"
+
+  [sinks.kinesis_guangdiantong.batch]
+  max_events = 500
+  max_bytes = 5000000
+  timeout_secs = 1
+
+[sinks.kinesis_toutiao]
+type = "aws_kinesis_streams"
+inputs = ["clean_toutiao"]
+region = "${KINESIS_REGION:?}"
+stream_name = "${KINESIS_STREAM_TOUTIAO:?}"
+# partition_key auto-generated as random 16-byte value when not specified
+encoding.codec = "json"
+compression = "none"
+
+  [sinks.kinesis_toutiao.buffer]
+  type = "disk"
+  max_size = 10737418240
+  when_full = "block"
+
+  [sinks.kinesis_toutiao.batch]
+  max_events = 500
+  max_bytes = 5000000
+  timeout_secs = 1
+
+[sinks.kinesis_test]
+type = "aws_kinesis_streams"
+inputs = ["clean_test"]
+region = "${KINESIS_REGION:?}"
+stream_name = "${KINESIS_STREAM_TEST:?}"
+# partition_key auto-generated as random 16-byte value when not specified
+encoding.codec = "json"
+compression = "none"
+
+  [sinks.kinesis_test.buffer]
+  type = "disk"
+  max_size = 5368709120
+  when_full = "block"
+
+  [sinks.kinesis_test.batch]
+  max_events = 500
+  max_bytes = 5000000
+  timeout_secs = 1

@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  nginx:
+    build:
+      context: ./docker/nginx
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - vector
+    networks:
+      - gateway-net
+
+  vector:
+    build:
+      context: ./docker/vector
+      dockerfile: Dockerfile
+    environment:
+      - KINESIS_REGION=ap-northeast-1
+      - KINESIS_STREAM_GUANGDIANTONG=guangdiantong_kinesis_stream
+      - KINESIS_STREAM_TOUTIAO=toutiao_kinesis_stream
+      - KINESIS_STREAM_TEST=guangdiantong_attribution_event
+      - AWS_REGION=ap-northeast-1
+    volumes:
+      - vector-data:/var/lib/vector
+    networks:
+      - gateway-net
+
+networks:
+  gateway-net:
+    driver: bridge
+
+volumes:
+  vector-data:
+    driver: local
