@@ -33,8 +33,10 @@ local json_body = cjson.encode(data)
 local httpc = http.new()
 httpc:set_timeout(5000)
 
-local vector_host = os.getenv("VECTOR_HOST") or "vector"
-local vector_port = os.getenv("VECTOR_PORT") or "8686"
+-- VECTOR_HOST/VECTOR_PORT set in init_by_lua_block (nginx.conf)
+-- Defaults: 127.0.0.1:8686 (works in both Docker Compose and ECS Fargate)
+local vector_host = VECTOR_HOST or "127.0.0.1"
+local vector_port = VECTOR_PORT or "8686"
 local res, send_err = httpc:request_uri("http://" .. vector_host .. ":" .. vector_port .. "/", {
     method = "POST",
     body = json_body,

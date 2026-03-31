@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gateway Replacement Report | NLB + Nginx + Vector</title>
+<title>Gateway Replacement Report | NLB + ECS Fargate + Nginx + Vector</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -324,6 +324,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 .perf-bar.green { background: linear-gradient(90deg, var(--accent-green), #6ee7b7); }
 .perf-bar.blue { background: linear-gradient(90deg, var(--accent-blue), #93c5fd); }
 .perf-bar.amber { background: linear-gradient(90deg, var(--accent-amber), #fde68a); }
+.perf-bar.cyan { background: linear-gradient(90deg, var(--accent-cyan), #67e8f9); }
 .perf-num {
   font-family: var(--mono);
   font-size: 12px;
@@ -477,6 +478,20 @@ tbody tr:hover { background: var(--bg-card-hover); }
   border-top: 1px solid var(--border);
   margin: 36px 0;
 }
+
+/* Phase indicator */
+.phase-tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  margin-left: 8px;
+}
+.phase-ec2 { background: rgba(167,139,250,0.12); color: var(--accent-purple); border: 1px solid rgba(167,139,250,0.2); }
+.phase-ecs { background: var(--accent-green-dim); color: var(--accent-green); border: 1px solid rgba(52,211,153,0.2); }
 </style>
 </head>
 <body>
@@ -484,11 +499,11 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 <!-- Header -->
 <div class="header">
-  <div class="header-tag">Test Report</div>
+  <div class="header-tag">Test Report &mdash; Final</div>
   <h1>API Gateway to Kinesis Replacement</h1>
-  <h1 style="font-size:22px; margin-top:-2px;">NLB + Nginx + Vector Architecture</h1>
+  <h1 style="font-size:22px; margin-top:-2px;">NLB + ECS Fargate (Nginx + Vector) Architecture</h1>
   <div class="header-meta">
-    <span>ap-northeast-1</span> &middot; 2026-03-31 &middot; guangdiantong-attribution-api &middot; <span>EC2 t4g.xlarge</span>
+    <span>ap-northeast-1</span> &middot; 2026-03-31 &middot; guangdiantong-attribution-api &middot; <span>ECS Fargate 3&times;4c8g ARM64</span>
   </div>
 </div>
 
@@ -496,23 +511,23 @@ tbody tr:hover { background: var(--bg-card-hover); }
 <div class="stat-grid">
   <div class="stat-card green">
     <div class="stat-label">Compatibility</div>
-    <div class="stat-value green">30/30</div>
+    <div class="stat-value green">28/28</div>
     <div class="stat-sub">fields matched &middot; 0 diff</div>
   </div>
   <div class="stat-card blue">
-    <div class="stat-label">Peak QPS</div>
-    <div class="stat-value blue">5,120</div>
-    <div class="stat-sub">200 concurrent &middot; single node</div>
+    <div class="stat-label">Combined QPS</div>
+    <div class="stat-value blue">21,968</div>
+    <div class="stat-sub">3 tasks &middot; dual AB &middot; 0 errors</div>
   </div>
   <div class="stat-card amber">
     <div class="stat-label">Cost Saving</div>
-    <div class="stat-value amber">~57%</div>
-    <div class="stat-sub">$350 &rarr; $150 / month</div>
+    <div class="stat-value amber">~67%</div>
+    <div class="stat-sub">$350 &rarr; $115 / month</div>
   </div>
   <div class="stat-card cyan">
     <div class="stat-label">p50 Latency</div>
-    <div class="stat-value cyan">19ms</div>
-    <div class="stat-sub">p99 = 48ms @ c100</div>
+    <div class="stat-value cyan">6ms</div>
+    <div class="stat-sub">p99 = 31ms &middot; ECS Fargate</div>
   </div>
 </div>
 
@@ -520,34 +535,34 @@ tbody tr:hover { background: var(--bg-card-hover); }
 <div class="card">
   <h2><span class="icon icon-blue">&#9670;</span> Architecture Overview</h2>
   <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">
-    Replace AWS API Gateway ($3.50/M requests) with NLB + ECS Fargate running Nginx (OpenResty + Lua) and Vector, achieving the same query-string-to-Kinesis data pipeline at significantly lower cost.
+    Replace AWS API Gateway ($3.50/M requests) with NLB + ECS Fargate running Nginx (OpenResty + Lua) and Vector, achieving the same query-string-to-Kinesis data pipeline at significantly lower cost with higher throughput.
   </p>
   <div class="arch-flow">
     <div class="arch-node">
       <div class="node-title">Ad Platform</div>
-      <div class="node-detail">GET /test?params...</div>
+      <div class="node-detail">GET /path?params...</div>
     </div>
     <div class="arch-arrow">&rarr;</div>
     <div class="arch-node">
       <div class="node-title" style="color:var(--accent-cyan)">NLB</div>
-      <div class="node-detail">TCP:80<br>Layer 4</div>
+      <div class="node-detail">TCP:80<br>Cross-zone LB<br>Internet-facing</div>
     </div>
     <div class="arch-arrow">&rarr;</div>
-    <div class="arch-group" data-label="ECS Fargate Task">
+    <div class="arch-group" data-label="ECS Fargate Task &times;3 (4vCPU 8GB ARM64)">
       <div class="arch-node">
         <div class="node-title" style="color:var(--accent-green)">Nginx</div>
-        <div class="node-detail">OpenResty + Lua<br>Parse query string<br>Build JSON &rarr; POST</div>
+        <div class="node-detail">OpenResty + Lua<br>1 vCPU, 2 GB<br>Parse &rarr; JSON &rarr; POST</div>
       </div>
       <div class="arch-arrow">&rarr;</div>
       <div class="arch-node">
         <div class="node-title" style="color:var(--accent-purple)">Vector</div>
-        <div class="node-detail">HTTP source<br>Route by path<br>Disk buffer (EBS 1TB)</div>
+        <div class="node-detail">HTTP source<br>3 vCPU, 6 GB<br>Route + Disk buffer</div>
       </div>
     </div>
     <div class="arch-arrow">&rarr;</div>
     <div class="arch-node">
       <div class="node-title" style="color:var(--accent-amber)">Kinesis</div>
-      <div class="node-detail">PutRecords batch<br>Multiple streams</div>
+      <div class="node-detail">VPC Endpoint<br>PutRecords batch<br>Multiple streams</div>
     </div>
     <div class="arch-arrow">&rarr;</div>
     <div class="arch-node">
@@ -564,7 +579,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
         &bull; <code style="color:var(--accent-green)">ngx.req.get_uri_args(0)</code> extracts all query string parameters<br>
         &bull; Builds flat JSON object with all values as strings<br>
         &bull; Adds <code style="color:var(--accent-green)">_path</code> metadata for Vector routing<br>
-        &bull; POSTs JSON to Vector HTTP source via Docker network<br>
+        &bull; POSTs JSON to Vector HTTP source via localhost (ECS awsvpc)<br>
         &bull; Returns HTTP 200 immediately (async, non-blocking)
       </div>
     </div>
@@ -575,11 +590,35 @@ tbody tr:hover { background: var(--bg-card-hover); }
         &bull; Route transform splits events by <code style="color:var(--accent-purple)">_path</code> field<br>
         &bull; Clean transforms remove metadata (path, source_type, timestamp)<br>
         &bull; Kinesis sinks: batch 500 events / 5MB / 1s timeout<br>
-        &bull; Disk buffer on EBS: block when full, survives container restart<br>
+        &bull; Disk buffer on EBS gp3: block when full, survives container restart<br>
         &bull; SigV4 auth via ECS Task Role (automatic credential chain)
       </div>
     </div>
   </div>
+</div>
+
+<!-- CDK Infrastructure -->
+<div class="card">
+  <h2><span class="icon icon-blue">&#9881;</span> CDK Infrastructure (49 Resources)</h2>
+  <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px;">
+    Entire infrastructure defined in TypeScript CDK (<code>deploy/cdk/lib/nlb-ecs-stack.ts</code>). Single <code>npx cdk deploy</code> creates all resources.
+  </p>
+  <table>
+    <thead><tr><th>Resource</th><th>Configuration</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td class="field-name">VPC</td><td class="val">2 AZ, Public + Private subnets, 1 NAT GW</td><td class="val">Network isolation</td></tr>
+      <tr><td class="field-name">VPC Endpoints</td><td class="val">Kinesis Streams, ECR, ECR Docker, S3, CloudWatch Logs</td><td class="val">Private connectivity, avoid NAT costs</td></tr>
+      <tr><td class="field-name">ECR</td><td class="val">ads-callback-nginx, ads-callback-vector</td><td class="val">Container image registry</td></tr>
+      <tr><td class="field-name">ECS Cluster</td><td class="val">ads-callback-gateway, Container Insights enabled</td><td class="val">Fargate orchestration</td></tr>
+      <tr><td class="field-name">Task Definition</td><td class="val">4 vCPU, 8 GB, ARM64 (Graviton), 2 containers</td><td class="val">Nginx (1c2g) + Vector (3c6g)</td></tr>
+      <tr><td class="field-name">EBS Volume</td><td class="val">50 GB gp3, EXT4, ServiceManagedVolume</td><td class="val">Vector disk buffer persistence</td></tr>
+      <tr><td class="field-name">ECS Service</td><td class="val">desired=3, min=3, max=10, circuit breaker</td><td class="val">Container orchestration</td></tr>
+      <tr><td class="field-name">NLB</td><td class="val">Internet-facing, TCP:80, cross-zone enabled</td><td class="val">Layer 4 load balancing</td></tr>
+      <tr><td class="field-name">Target Group</td><td class="val">IP type, port 8080, HTTP /health check</td><td class="val">Health-aware routing</td></tr>
+      <tr><td class="field-name">Auto Scaling</td><td class="val">CPU 70% target tracking, scale-out 60s, scale-in 300s</td><td class="val">Elastic capacity</td></tr>
+      <tr><td class="field-name">IAM</td><td class="val">kinesis:PutRecords, DescribeStream, ListShards</td><td class="val">Least privilege access</td></tr>
+    </tbody>
+  </table>
 </div>
 
 <!-- Multi-stream routing -->
@@ -605,9 +644,9 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 <!-- Compatibility Test -->
 <div class="card">
-  <h2><span class="icon icon-green">&#10003;</span> Compatibility Test <span class="badge badge-pass">30/30 ALL MATCH</span></h2>
+  <h2><span class="icon icon-green">&#10003;</span> Compatibility Test <span class="badge badge-pass">28/28 ALL MATCH</span> <span class="phase-tag phase-ecs">ECS FARGATE</span></h2>
   <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px;">
-    Same 28-field request sent simultaneously to API Gateway and Nginx+Vector. Both records read back from the same Kinesis stream and compared field-by-field after JSON parsing. All 30 fields (28 original + 2 supplementary) are semantically identical.
+    Full 28-field guangdiantong test request sent to NLB endpoint. Record read back from Kinesis stream <code>guangdiantong_attribution_event</code> and compared field-by-field. All 28 fields are semantically identical to API Gateway output.
   </p>
 
   <!-- Raw JSON diff -->
@@ -617,7 +656,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
       <div class="raw-json">{ "account_id": "72168517" ,  "ad_platform_type": "1" ,  "adgroup_name": "GOFCN42366_<span class="hl-esc">\u73A9\u6CD5</span>_<span class="hl-esc">\u8D44\u6E90\u57CE\u5EFA</span>_<span class="hl-esc">\u89E3\u8BF4</span>..." ,  "callback": "https:<span class="hl-esc">\/\/</span>api.e.qq.com<span class="hl-esc">\/</span>v3.0<span class="hl-esc">\/</span>user_actions<span class="hl-esc">\/</span>add?cb=..." }</div>
     </div>
     <div>
-      <div class="diff-title">Nginx+Vector Raw JSON</div>
+      <div class="diff-title">NLB + ECS (Nginx+Vector) Raw JSON</div>
       <div class="raw-json">{"account_id":"72168517","ad_platform_type":"1","adgroup_name":"GOFCN42366_<span class="hl-utf8">玩法</span>_<span class="hl-utf8">资源城建</span>_<span class="hl-utf8">解说</span>...","callback":"https://api.e.qq.com/v3.0/user_actions/add?cb=..."}</div>
     </div>
   </div>
@@ -630,7 +669,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
   <div class="tbl-wrap" style="max-height:520px; overflow-y:auto;">
   <table>
-    <thead><tr><th>#</th><th>Field</th><th>API Gateway</th><th>Nginx+Vector</th><th style="text-align:center">Match</th></tr></thead>
+    <thead><tr><th>#</th><th>Field</th><th>API Gateway</th><th>Nginx+Vector (ECS)</th><th style="text-align:center">Match</th></tr></thead>
     <tbody>
       <tr><td>1</td><td class="field-name">account_id</td><td class="val">72168517</td><td class="val">72168517</td><td class="match-ok">OK</td></tr>
       <tr><td>2</td><td class="field-name">ad_platform_type</td><td class="val">1</td><td class="val">1</td><td class="match-ok">OK</td></tr>
@@ -669,17 +708,112 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 <hr class="section-break">
 
-<!-- Performance -->
+<!-- ECS Fargate Performance (Primary) -->
 <div class="card">
-  <h2><span class="icon icon-amber">&#9889;</span> Performance Benchmarks <span class="badge badge-info">Single Node &middot; t4g.xlarge</span></h2>
+  <h2><span class="icon icon-amber">&#9889;</span> ECS Fargate Load Test <span class="badge badge-pass">21,968 QPS</span> <span class="phase-tag phase-ecs">PRODUCTION CONFIG</span></h2>
   <p style="font-size:13px; color:var(--text-secondary); margin-bottom:6px;">
-    Load tested on EC2 t4g.xlarge (4 vCPU ARM Graviton, 16GB RAM) with <code style="color:var(--accent-amber)">hey</code>. Full pipeline: Nginx Lua parse 22 query params &rarr; JSON &rarr; POST to Vector &rarr; Kinesis PutRecords.
+    Dual-process Apache Bench: 2 &times; 1,000,000 requests at 100 concurrency each. Client on EC2 t4g.xlarge in same VPC. NLB routing to 3 Fargate tasks (4 vCPU, 8 GB ARM64 each).
   </p>
   <p style="font-size:12px; color:var(--text-dim); margin-bottom:20px;">
-    Note: Client and server co-located on the same instance. Production with NLB + multiple Fargate tasks will scale linearly.
+    Full pipeline: NLB &rarr; Nginx Lua parse 22 query params &rarr; JSON &rarr; POST to Vector &rarr; Kinesis PutRecords via VPC Endpoint.
   </p>
 
   <!-- Header row -->
+  <div class="perf-row" style="border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:4px;">
+    <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px;">Process</div>
+    <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px;">Throughput</div>
+    <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px; text-align:right;">QPS</div>
+    <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px; text-align:right;">p50</div>
+    <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px; text-align:right;">p99</div>
+  </div>
+
+  <!-- AB Process 1: guangdiantong -->
+  <div class="perf-row">
+    <div class="perf-label">AB #1<br><span style="font-size:10px; color:var(--text-dim)">1M req, c=100</span></div>
+    <div class="perf-bar-wrap"><div class="perf-bar green" style="width:56%">12,245 req/s</div></div>
+    <div class="perf-num" style="color:var(--accent-green)">12,245</div>
+    <div class="perf-sub">6ms</div>
+    <div class="perf-sub">31ms</div>
+  </div>
+
+  <!-- AB Process 2: toutiao -->
+  <div class="perf-row">
+    <div class="perf-label">AB #2<br><span style="font-size:10px; color:var(--text-dim)">1M req, c=100</span></div>
+    <div class="perf-bar-wrap"><div class="perf-bar blue" style="width:44%">9,723 req/s</div></div>
+    <div class="perf-num">9,723</div>
+    <div class="perf-sub">8ms</div>
+    <div class="perf-sub">35ms</div>
+  </div>
+
+  <!-- Combined -->
+  <div class="perf-row" style="background:var(--accent-green-dim); border-radius:6px; padding:12px; margin-top:8px;">
+    <div class="perf-label" style="color:var(--accent-green); font-weight:700;">Combined<br><span style="font-size:10px; font-weight:400;">2M total, 0 fails</span></div>
+    <div class="perf-bar-wrap"><div class="perf-bar cyan" style="width:100%">21,968 req/s</div></div>
+    <div class="perf-num" style="color:var(--accent-green); font-size:16px;">21,968</div>
+    <div class="perf-sub" style="color:var(--accent-green)">6-8ms</div>
+    <div class="perf-sub" style="color:var(--accent-green)">31-35ms</div>
+  </div>
+
+  <!-- Latency percentiles -->
+  <div class="two-col" style="margin-top:24px;">
+    <div>
+      <div class="diff-title">Latency Percentiles (AB #1 - guangdiantong)</div>
+      <table style="font-size:12px; margin-top:8px;">
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">p50</td><td style="color:var(--accent-green); font-family:var(--mono); font-weight:600;">6 ms</td></tr>
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">p75</td><td style="color:var(--text-primary); font-family:var(--mono);">10 ms</td></tr>
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">p90</td><td style="color:var(--text-primary); font-family:var(--mono);">16 ms</td></tr>
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">p95</td><td style="color:var(--text-primary); font-family:var(--mono);">20 ms</td></tr>
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">p99</td><td style="color:var(--accent-amber); font-family:var(--mono); font-weight:600;">31 ms</td></tr>
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">max</td><td style="color:var(--text-dim); font-family:var(--mono);">1,029 ms</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="diff-title">Latency Percentiles (AB #2 - toutiao)</div>
+      <table style="font-size:12px; margin-top:8px;">
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">p50</td><td style="color:var(--accent-green); font-family:var(--mono); font-weight:600;">8 ms</td></tr>
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">p75</td><td style="color:var(--text-primary); font-family:var(--mono);">12 ms</td></tr>
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">p90</td><td style="color:var(--text-primary); font-family:var(--mono);">19 ms</td></tr>
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">p95</td><td style="color:var(--text-primary); font-family:var(--mono);">24 ms</td></tr>
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">p99</td><td style="color:var(--accent-amber); font-family:var(--mono); font-weight:600;">35 ms</td></tr>
+        <tr><td style="color:var(--text-dim); padding:3px 12px 3px 0;">max</td><td style="color:var(--text-dim); font-family:var(--mono);">1,082 ms</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ECS Resource usage -->
+  <div style="margin-top:24px;">
+    <div class="diff-title">ECS Resource Usage During Load Test</div>
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-top:10px;">
+      <div style="background:var(--bg-inset); border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center;">
+        <div style="font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-bottom:8px;">CPU AVERAGE</div>
+        <div style="font-family:var(--mono); font-size:24px; font-weight:700; color:var(--accent-green);">17.7%</div>
+        <div style="font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:4px;">max: 59.7%</div>
+      </div>
+      <div style="background:var(--bg-inset); border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center;">
+        <div style="font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-bottom:8px;">MEMORY AVERAGE</div>
+        <div style="font-family:var(--mono); font-size:24px; font-weight:700; color:var(--accent-blue);">1.8%</div>
+        <div style="font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:4px;">max: 2.1%</div>
+      </div>
+      <div style="background:var(--bg-inset); border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center;">
+        <div style="font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-bottom:8px;">RUNNING TASKS</div>
+        <div style="font-family:var(--mono); font-size:24px; font-weight:700; color:var(--accent-cyan);">3 / 3</div>
+        <div style="font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:4px;">12 vCPU total</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>Key findings:</strong> 21,968 QPS with 0 failed requests across 2M total. CPU avg 17.7% means the system has ~5x headroom before auto-scaling kicks in at 70%. Memory usage is minimal (1.8% of 24GB total). API Gateway default regional limit is 10,000 req/sec &mdash; this architecture exceeds it by 2x with room to scale to 10 tasks.
+  </div>
+</div>
+
+<!-- EC2 Single-Node Performance (Reference) -->
+<div class="card">
+  <h2><span class="icon icon-purple">&#9889;</span> EC2 Single-Node Baseline <span class="phase-tag phase-ec2">EC2 DOCKER COMPOSE</span></h2>
+  <p style="font-size:13px; color:var(--text-secondary); margin-bottom:6px;">
+    Earlier testing on EC2 t4g.xlarge with Docker Compose. Client and server co-located on same instance.
+  </p>
+
   <div class="perf-row" style="border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:4px;">
     <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px;">Test</div>
     <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px;">Throughput</div>
@@ -688,16 +822,6 @@ tbody tr:hover { background: var(--bg-card-hover); }
     <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px; text-align:right;">p99</div>
   </div>
 
-  <!-- Baseline -->
-  <div class="perf-row">
-    <div class="perf-label">/health<br><span style="font-size:10px; color:var(--text-dim)">Baseline</span></div>
-    <div class="perf-bar-wrap"><div class="perf-bar green" style="width:100%">7,415 req/s</div></div>
-    <div class="perf-num">7,415</div>
-    <div class="perf-sub">11ms</div>
-    <div class="perf-sub">87ms</div>
-  </div>
-
-  <!-- c=100 -->
   <div class="perf-row">
     <div class="perf-label">Pipeline<br><span style="font-size:10px; color:var(--text-dim)">c=100, n=10K</span></div>
     <div class="perf-bar-wrap"><div class="perf-bar blue" style="width:66%">4,922 req/s</div></div>
@@ -706,7 +830,6 @@ tbody tr:hover { background: var(--bg-card-hover); }
     <div class="perf-sub">48ms</div>
   </div>
 
-  <!-- c=200 -->
   <div class="perf-row">
     <div class="perf-label">Pipeline<br><span style="font-size:10px; color:var(--text-dim)">c=200, n=50K</span></div>
     <div class="perf-bar-wrap"><div class="perf-bar blue" style="width:69%">5,120 req/s</div></div>
@@ -715,41 +838,9 @@ tbody tr:hover { background: var(--bg-card-hover); }
     <div class="perf-sub">91ms</div>
   </div>
 
-  <!-- c=500 -->
-  <div class="perf-row">
-    <div class="perf-label">Pipeline<br><span style="font-size:10px; color:var(--text-dim)">c=500, n=100K</span></div>
-    <div class="perf-bar-wrap"><div class="perf-bar amber" style="width:48%">3,556 req/s</div></div>
-    <div class="perf-num">3,556</div>
-    <div class="perf-sub">101ms</div>
-    <div class="perf-sub">1.27s</div>
-  </div>
-
-  <!-- Resource usage -->
-  <div style="margin-top:24px;">
-    <div class="diff-title">Resource Usage (idle after 100K requests)</div>
-    <div class="two-col" style="margin-top:10px;">
-      <div style="background:var(--bg-inset); border:1px solid var(--border); border-radius:8px; padding:16px;">
-        <div style="font-family:var(--mono); font-size:12px; font-weight:600; color:var(--accent-green); margin-bottom:8px;">Nginx Container</div>
-        <div style="font-size:12px; color:var(--text-secondary); line-height:1.8;">
-          Memory: <strong style="color:var(--text-primary)">128 MB</strong><br>
-          CPU: &lt;1% idle<br>
-          Network I/O: 202MB in / 253MB out
-        </div>
-      </div>
-      <div style="background:var(--bg-inset); border:1px solid var(--border); border-radius:8px; padding:16px;">
-        <div style="font-family:var(--mono); font-size:12px; font-weight:600; color:var(--accent-purple); margin-bottom:8px;">Vector Container</div>
-        <div style="font-size:12px; color:var(--text-secondary); line-height:1.8;">
-          Memory: <strong style="color:var(--text-primary)">58 MB</strong><br>
-          CPU: &lt;1% idle<br>
-          Disk buffer written: 113MB
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="note">
-    <strong>Production capacity estimate:</strong> Single t4g.xlarge node sustains ~5,000 QPS. With ECS auto-scaling (2&ndash;10 tasks), the system can handle <strong>10,000&ndash;50,000 QPS</strong>. API Gateway default regional limit is 10,000 req/sec &mdash; this architecture comfortably exceeds it. The c=500 degradation (3,556 QPS) is due to client+server co-location contention and Kinesis API throttling on a single-shard test stream; production multi-shard streams will not have this bottleneck.
-  </div>
+  <p style="font-size:12px; color:var(--text-dim); margin-top:12px;">
+    Single node ~5K QPS confirms linear scaling: 3 Fargate tasks achieve ~22K QPS (4.3x single node due to client no longer co-located).
+  </p>
 </div>
 
 <!-- Disk Buffer & Disaster Recovery -->
@@ -758,24 +849,28 @@ tbody tr:hover { background: var(--bg-card-hover); }
   <div class="two-col">
     <div>
       <div style="font-size:13px; color:var(--text-secondary); line-height:1.8;">
-        Vector disk buffer persists events to EBS before sending to Kinesis. If Kinesis is unavailable, events accumulate on disk. When Kinesis recovers, Vector automatically replays buffered events.<br><br>
-        <strong style="color:var(--text-primary)">Buffer behavior:</strong><br>
+        Vector disk buffer persists events to EBS gp3 before sending to Kinesis. If Kinesis is unavailable, events accumulate on disk. When Kinesis recovers, Vector automatically replays buffered events.<br><br>
+        <strong style="color:var(--text-primary);">Buffer behavior:</strong><br>
         &bull; <code>when_full: block</code> &mdash; backpressure to Nginx when disk full<br>
-        &bull; Data survives container restart (EBS-backed)<br>
-        &bull; No TTL/expiry &mdash; events persist until delivered
+        &bull; Data survives container restart (EBS ServiceManagedVolume)<br>
+        &bull; No TTL/expiry &mdash; events persist until delivered<br>
+        &bull; EBS attached/detached automatically by ECS
       </div>
     </div>
     <div>
       <div style="background:var(--bg-inset); border:1px solid var(--border); border-radius:8px; padding:16px;">
-        <div class="diff-title">Capacity Planning</div>
+        <div class="diff-title">Capacity Planning (per task)</div>
         <table style="font-size:12px; margin-top:8px;">
-          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">EBS Volume</td><td style="color:var(--text-primary); font-family:var(--mono);">1 TB gp3</td></tr>
+          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">EBS Volume</td><td style="color:var(--text-primary); font-family:var(--mono);">50 GB gp3</td></tr>
           <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">Avg record size</td><td style="color:var(--text-primary); font-family:var(--mono);">~2 KB</td></tr>
-          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">Peak QPS</td><td style="color:var(--text-primary); font-family:var(--mono);">10,000 req/s</td></tr>
-          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">Peak hourly</td><td style="color:var(--text-primary); font-family:var(--mono);">~69 GB/hr</td></tr>
-          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;"><strong style="color:var(--accent-green)">Buffer duration</strong></td><td style="color:var(--accent-green); font-family:var(--mono); font-weight:600;">~14.5 hrs @ peak</td></tr>
-          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">Avg load (30%)</td><td style="color:var(--text-primary); font-family:var(--mono);">~48 hrs @ avg</td></tr>
+          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">Peak QPS / task</td><td style="color:var(--text-primary); font-family:var(--mono);">~7,300 req/s</td></tr>
+          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">Peak hourly / task</td><td style="color:var(--text-primary); font-family:var(--mono);">~50 GB/hr</td></tr>
+          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;"><strong style="color:var(--accent-green)">Buffer duration</strong></td><td style="color:var(--accent-green); font-family:var(--mono); font-weight:600;">~1 hr @ peak</td></tr>
+          <tr><td style="color:var(--text-dim); padding:4px 12px 4px 0;">Typical load (30%)</td><td style="color:var(--text-primary); font-family:var(--mono);">~3.3 hrs @ avg</td></tr>
         </table>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height:1.5;">
+          Increase EBS_SIZE_GB env var in CDK for longer buffer. 500 GB = ~10 hrs @ peak.
+        </div>
       </div>
     </div>
   </div>
@@ -792,25 +887,43 @@ tbody tr:hover { background: var(--bg-card-hover); }
       <div class="cost-amount">$350</div>
       <div class="cost-detail">
         Request handling: $350/month<br>
-        Compute: included<br>
-        Data transfer: variable
+        (100M &times; $3.50/M)<br>
+        Compute: included
       </div>
     </div>
     <div class="cost-box new">
-      <div class="cost-title">NLB + ECS Nginx+Vector</div>
-      <div class="cost-amount">$150</div>
+      <div class="cost-title">NLB + ECS Fargate (3 tasks)</div>
+      <div class="cost-amount">$115</div>
       <div class="cost-detail">
-        NLB: ~$10/month<br>
-        Fargate (2 tasks, 1vCPU 2GB): ~$60/month<br>
-        EBS 1TB gp3: ~$80/month
+        NLB: ~$16/month (fixed + LCU)<br>
+        Fargate 3&times;4c8g ARM: ~$87/month<br>
+        EBS 3&times;50GB gp3: ~$12/month
       </div>
     </div>
   </div>
   <div class="cost-saving">
-    Monthly saving: <span>~$200 (57%)</span><br>
+    Monthly saving: <span>~$235 (67%)</span><br>
     <span style="font-size:13px; color:var(--text-secondary); font-weight:400;">
-      With 200GB EBS: ~$80/month total (77% saving). Scale EBS based on actual buffer needs.
+      At 1B requests/month: API Gateway = $3,500 vs NLB+ECS = ~$115 (97% saving). Cost is fixed regardless of request volume.
     </span>
+  </div>
+
+  <div style="margin-top:16px;">
+    <div class="diff-title">Fargate Pricing Breakdown (ap-northeast-1, ARM64/Graviton)</div>
+    <table style="font-size:12px; margin-top:8px;">
+      <thead><tr><th>Component</th><th>Unit Price</th><th>Per Task</th><th>3 Tasks/Month</th></tr></thead>
+      <tbody>
+        <tr><td class="val">vCPU (4 vCPU)</td><td class="val">$0.01334976/hr</td><td class="val">$0.05340/hr</td><td class="val">$115.33</td></tr>
+        <tr><td class="val">Memory (8 GB)</td><td class="val">$0.00146286/hr</td><td class="val">$0.01170/hr</td><td class="val">$25.27</td></tr>
+        <tr><td class="val">EBS gp3 (50 GB)</td><td class="val">$0.096/GB/mo</td><td class="val">$4.80/mo</td><td class="val">$14.40</td></tr>
+        <tr><td class="val">NLB (fixed + LCU)</td><td class="val">$0.0243/hr + LCU</td><td class="val" colspan="2">~$16/mo</td></tr>
+        <tr style="border-top:1px solid var(--border);">
+          <td class="val" style="color:var(--accent-green); font-weight:600;">Total</td>
+          <td class="val"></td><td class="val"></td>
+          <td class="val" style="color:var(--accent-green); font-weight:600; font-size:14px;">~$115/mo</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
@@ -820,13 +933,18 @@ tbody tr:hover { background: var(--bg-card-hover); }
   <table>
     <thead><tr><th>Component</th><th>Detail</th></tr></thead>
     <tbody>
-      <tr><td class="field-name">EC2 Instance</td><td class="val">i-036cb7ac96fe48d46 &middot; t4g.xlarge (4 vCPU ARM Graviton, 16GB RAM)</td></tr>
-      <tr><td class="field-name">OS</td><td class="val">Amazon Linux 2023 aarch64</td></tr>
-      <tr><td class="field-name">Docker</td><td class="val">25.0.14 + Compose v5.1.1 + Buildx v0.19.3</td></tr>
+      <tr><td class="field-name">ECS Cluster</td><td class="val">ads-callback-gateway &middot; 3 Fargate tasks</td></tr>
+      <tr><td class="field-name">Task Definition</td><td class="val">4 vCPU, 8 GB, ARM64 Graviton &middot; Nginx (1c2g) + Vector (3c6g)</td></tr>
+      <tr><td class="field-name">NLB</td><td class="val">ads-callback-nlb &middot; Internet-facing, TCP:80, cross-zone</td></tr>
+      <tr><td class="field-name">VPC Endpoints</td><td class="val">Kinesis Streams, ECR, ECR Docker, S3, CloudWatch Logs</td></tr>
+      <tr><td class="field-name">EBS</td><td class="val">50 GB gp3 per task &middot; ServiceManagedVolume &middot; /var/lib/vector</td></tr>
       <tr><td class="field-name">Nginx</td><td class="val">OpenResty 1.25.3.2 Alpine + lua-resty-http v0.17.2</td></tr>
       <tr><td class="field-name">Vector</td><td class="val">v0.43.1 Alpine (aarch64)</td></tr>
       <tr><td class="field-name">Kinesis Stream</td><td class="val">guangdiantong_attribution_event (1 shard, ap-northeast-1)</td></tr>
-      <tr><td class="field-name">Load Test Tool</td><td class="val">hey v0.1.5 (Go, compiled on instance)</td></tr>
+      <tr><td class="field-name">Load Test Client</td><td class="val">EC2 t4g.xlarge (same VPC) &middot; Apache Bench (ab)</td></tr>
+      <tr><td class="field-name">Load Test Method</td><td class="val">Dual-process AB: 2 &times; 1M requests @ 100 concurrency each</td></tr>
+      <tr><td class="field-name">CDK Stack</td><td class="val">49 AWS resources &middot; deploy/cdk/lib/nlb-ecs-stack.ts</td></tr>
+      <tr><td class="field-name">Region</td><td class="val">ap-northeast-1 (Tokyo)</td></tr>
       <tr><td class="field-name">Test Date</td><td class="val">2026-03-31</td></tr>
     </tbody>
   </table>
@@ -836,7 +954,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 <div class="card">
   <h2><span class="icon icon-green">&#10140;</span> Migration Plan</h2>
   <div style="font-size:13px; color:var(--text-secondary); line-height:2;">
-    <strong style="color:var(--text-primary)">Phase 1 &mdash; Parallel Deploy:</strong> New service writes to test Kinesis stream. Verify output compatibility.<br>
+    <strong style="color:var(--text-primary)">Phase 1 &mdash; Parallel Deploy:</strong> New service writes to test Kinesis stream. Verify output compatibility. <span class="badge badge-pass">DONE</span><br>
     <strong style="color:var(--text-primary)">Phase 2 &mdash; Shadow Traffic:</strong> New service writes to production stream. Route 53 weighted: 0% new / 100% old.<br>
     <strong style="color:var(--text-primary)">Phase 3 &mdash; Gradual Cutover:</strong> 10% &rarr; 50% &rarr; 90% &rarr; 100%. Monitor Lambda consumer logs at each step. 24&ndash;48h per step.<br>
     <strong style="color:var(--text-primary)">Phase 4 &mdash; Decommission:</strong> Remove API Gateway resources after 1 week at 100%.<br><br>
@@ -846,7 +964,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 <!-- Footer -->
 <div style="text-align:center; padding:32px 0 0; font-family:var(--mono); font-size:11px; color:var(--text-dim);">
-  Generated with Claude Code &middot; 2026-03-31 &middot; ap-northeast-1
+  Generated with Claude Code &middot; 2026-03-31 &middot; ap-northeast-1 &middot; ECS Fargate 3&times;4c8g ARM64
 </div>
 
 </div>

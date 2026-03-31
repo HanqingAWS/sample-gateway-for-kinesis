@@ -80,7 +80,7 @@ compression = "none"
 
   [sinks.kinesis_guangdiantong.buffer]
   type = "disk"
-  max_size = 10737418240
+  max_size = 5368709120
   when_full = "block"
 
   [sinks.kinesis_guangdiantong.batch]
@@ -99,7 +99,7 @@ compression = "none"
 
   [sinks.kinesis_toutiao.buffer]
   type = "disk"
-  max_size = 10737418240
+  max_size = 5368709120
   when_full = "block"
 
   [sinks.kinesis_toutiao.batch]

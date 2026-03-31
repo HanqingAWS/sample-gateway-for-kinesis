@@ -1,3 +1,9 @@
 .claude/
 *.log
 vector-data/
+node_modules/
+cdk.out/
+cdk.context.json
+*.js
+*.d.ts
+!deploy/cdk/cdk.json
