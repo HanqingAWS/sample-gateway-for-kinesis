@@ -5,77 +5,96 @@ import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
-import * as autoscaling from 'aws-cdk-lib/aws-applicationautoscaling';
 import { Construct } from 'constructs';
 
+export interface NlbEcsStackProps extends cdk.StackProps {
+  platformName: string;
+  kinesisStreamName: string;
+  kinesisRegion: string;
+  vpcId?: string;
+  vpcCidr?: string;
+  ecsDesiredCount: number;
+  ebsSizeGb: number;
+  ebsRetentionHours: number;
+  ebsReclaimPercent: number;
+}
+
 export class NlbEcsStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: NlbEcsStackProps) {
     super(scope, id, props);
 
-    // ────────────────────────────────────────────
-    // Configuration from environment variables
-    // ────────────────────────────────────────────
-    const vpcCidr = process.env.VPC_CIDR || '10.0.0.0/16';
-    const kinesisRegion = process.env.KINESIS_REGION || 'ap-northeast-1';
-    const streamGuangdiantong = process.env.KINESIS_STREAM_GUANGDIANTONG || 'guangdiantong_kinesis_stream';
-    const streamToutiao = process.env.KINESIS_STREAM_TOUTIAO || 'toutiao_kinesis_stream';
-    const streamTest = process.env.KINESIS_STREAM_TEST || 'guangdiantong_attribution_event';
-    const desiredCount = parseInt(process.env.ECS_DESIRED_COUNT || '3', 10);
-    const ebsSizeGb = parseInt(process.env.EBS_SIZE_GB || '50', 10);
+    const {
+      platformName,
+      kinesisStreamName,
+      kinesisRegion,
+      vpcId,
+      vpcCidr,
+      ecsDesiredCount,
+      ebsSizeGb,
+      ebsRetentionHours,
+      ebsReclaimPercent,
+    } = props;
 
     // ────────────────────────────────────────────
-    // VPC
+    // VPC: import existing or create new
     // ────────────────────────────────────────────
-    const vpc = new ec2.Vpc(this, 'GatewayVpc', {
-      ipAddresses: ec2.IpAddresses.cidr(vpcCidr),
-      maxAzs: 2,
-      natGateways: 1,
-      subnetConfiguration: [
-        {
-          cidrMask: 24,
-          name: 'Public',
-          subnetType: ec2.SubnetType.PUBLIC,
-        },
-        {
-          cidrMask: 24,
-          name: 'Private',
-          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-        },
-      ],
-    });
+    let vpc: ec2.IVpc;
 
-    // Kinesis VPC Endpoint (Interface type) to avoid NAT costs for Kinesis traffic
-    vpc.addInterfaceEndpoint('KinesisEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.KINESIS_STREAMS,
-    });
+    if (vpcId) {
+      // Import existing VPC — assumes it already has required subnets and VPC endpoints
+      // Run scripts/check-vpc.sh to validate before deploying
+      vpc = ec2.Vpc.fromLookup(this, 'ImportedVpc', { vpcId });
+    } else {
+      // Create new VPC with all required endpoints
+      const newVpc = new ec2.Vpc(this, 'GatewayVpc', {
+        ipAddresses: ec2.IpAddresses.cidr(vpcCidr || '10.0.0.0/16'),
+        maxAzs: 2,
+        natGateways: 1,
+        subnetConfiguration: [
+          {
+            cidrMask: 24,
+            name: 'Public',
+            subnetType: ec2.SubnetType.PUBLIC,
+          },
+          {
+            cidrMask: 24,
+            name: 'Private',
+            subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+          },
+        ],
+      });
 
-    // ECR VPC Endpoints for image pull without NAT
-    vpc.addInterfaceEndpoint('EcrEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.ECR,
-    });
-    vpc.addInterfaceEndpoint('EcrDockerEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.ECR_DOCKER,
-    });
-    vpc.addGatewayEndpoint('S3Endpoint', {
-      service: ec2.GatewayVpcEndpointAwsService.S3,
-    });
+      // VPC Endpoints
+      newVpc.addInterfaceEndpoint('KinesisEndpoint', {
+        service: ec2.InterfaceVpcEndpointAwsService.KINESIS_STREAMS,
+      });
+      newVpc.addInterfaceEndpoint('EcrEndpoint', {
+        service: ec2.InterfaceVpcEndpointAwsService.ECR,
+      });
+      newVpc.addInterfaceEndpoint('EcrDockerEndpoint', {
+        service: ec2.InterfaceVpcEndpointAwsService.ECR_DOCKER,
+      });
+      newVpc.addGatewayEndpoint('S3Endpoint', {
+        service: ec2.GatewayVpcEndpointAwsService.S3,
+      });
+      newVpc.addInterfaceEndpoint('CloudWatchLogsEndpoint', {
+        service: ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
+      });
 
-    // CloudWatch Logs VPC Endpoint
-    vpc.addInterfaceEndpoint('CloudWatchLogsEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
-    });
+      vpc = newVpc;
+    }
 
     // ────────────────────────────────────────────
     // ECR Repositories
     // ────────────────────────────────────────────
     const nginxRepo = new ecr.Repository(this, 'NginxRepo', {
-      repositoryName: 'ads-callback-nginx',
+      repositoryName: `${platformName}-nginx`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       emptyOnDelete: true,
     });
 
     const vectorRepo = new ecr.Repository(this, 'VectorRepo', {
-      repositoryName: 'ads-callback-vector',
+      repositoryName: `${platformName}-vector`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       emptyOnDelete: true,
     });
@@ -85,7 +104,7 @@ export class NlbEcsStack extends cdk.Stack {
     // ────────────────────────────────────────────
     const cluster = new ecs.Cluster(this, 'GatewayCluster', {
       vpc,
-      clusterName: 'ads-callback-gateway',
+      clusterName: `${platformName}-gateway`,
       containerInsights: true,
     });
 
@@ -93,7 +112,7 @@ export class NlbEcsStack extends cdk.Stack {
     // CloudWatch Log Group
     // ────────────────────────────────────────────
     const logGroup = new logs.LogGroup(this, 'GatewayLogGroup', {
-      logGroupName: '/ecs/ads-callback-gateway',
+      logGroupName: `/ecs/${platformName}-gateway`,
       retention: logs.RetentionDays.TWO_WEEKS,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
@@ -104,7 +123,7 @@ export class NlbEcsStack extends cdk.Stack {
     const taskDef = new ecs.FargateTaskDefinition(this, 'GatewayTaskDef', {
       memoryLimitMiB: 8192,
       cpu: 4096,
-      family: 'ads-callback-gateway',
+      family: `${platformName}-gateway`,
       runtimePlatform: {
         operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
@@ -121,13 +140,11 @@ export class NlbEcsStack extends cdk.Stack {
         'kinesis:ListShards',
       ],
       resources: [
-        `arn:aws:kinesis:${kinesisRegion}:${this.account}:stream/${streamGuangdiantong}`,
-        `arn:aws:kinesis:${kinesisRegion}:${this.account}:stream/${streamToutiao}`,
-        `arn:aws:kinesis:${kinesisRegion}:${this.account}:stream/${streamTest}`,
+        `arn:aws:kinesis:${kinesisRegion}:${this.account}:stream/${kinesisStreamName}`,
       ],
     }));
 
-    // EBS Volume for Vector disk buffer (managed by ECS)
+    // EBS Volume for Vector disk buffer
     const volume = new ecs.ServiceManagedVolume(this, 'VectorDataVolume', {
       name: 'vector-data',
       managedEBSVolume: {
@@ -136,7 +153,7 @@ export class NlbEcsStack extends cdk.Stack {
         fileSystemType: ecs.FileSystemType.EXT4,
         tagSpecifications: [{
           tags: {
-            Name: 'ads-callback-vector-data',
+            Name: `${platformName}-vector-data`,
           },
           propagateTags: ecs.EbsPropagatedTagSource.SERVICE,
         }],
@@ -175,11 +192,11 @@ export class NlbEcsStack extends cdk.Stack {
       }),
       environment: {
         KINESIS_REGION: kinesisRegion,
-        KINESIS_STREAM_GUANGDIANTONG: streamGuangdiantong,
-        KINESIS_STREAM_TOUTIAO: streamToutiao,
-        KINESIS_STREAM_TEST: streamTest,
+        KINESIS_STREAM_NAME: kinesisStreamName,
         AWS_REGION: kinesisRegion,
         VECTOR_LOG: 'info',
+        EBS_RETENTION_HOURS: String(ebsRetentionHours),
+        EBS_RECLAIM_PERCENT: String(ebsReclaimPercent),
       },
       portMappings: [
         { containerPort: 8686, protocol: ecs.Protocol.TCP },
@@ -197,7 +214,7 @@ export class NlbEcsStack extends cdk.Stack {
     // ────────────────────────────────────────────
     const serviceSg = new ec2.SecurityGroup(this, 'ServiceSg', {
       vpc,
-      description: 'Security group for ads callback gateway ECS tasks',
+      description: `Security group for ${platformName} gateway ECS tasks`,
       allowAllOutbound: true,
     });
     serviceSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(8080), 'NLB health check and traffic');
@@ -209,7 +226,7 @@ export class NlbEcsStack extends cdk.Stack {
       vpc,
       internetFacing: true,
       crossZoneEnabled: true,
-      loadBalancerName: 'ads-callback-nlb',
+      loadBalancerName: `${platformName}-nlb`,
     });
 
     // ────────────────────────────────────────────
@@ -218,16 +235,15 @@ export class NlbEcsStack extends cdk.Stack {
     const service = new ecs.FargateService(this, 'GatewayService', {
       cluster,
       taskDefinition: taskDef,
-      desiredCount,
+      desiredCount: ecsDesiredCount,
       securityGroups: [serviceSg],
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       assignPublicIp: false,
       circuitBreaker: { enable: true, rollback: true },
       healthCheckGracePeriod: cdk.Duration.seconds(60),
-      serviceName: 'ads-callback-gateway',
+      serviceName: `${platformName}-gateway`,
     });
 
-    // Attach the managed EBS volume to the service
     service.addVolume(volume);
 
     // ────────────────────────────────────────────
@@ -260,7 +276,7 @@ export class NlbEcsStack extends cdk.Stack {
     // Auto-scaling: CPU 70% target tracking
     // ────────────────────────────────────────────
     const scaling = service.autoScaleTaskCount({
-      minCapacity: desiredCount,
+      minCapacity: ecsDesiredCount,
       maxCapacity: 10,
     });
 
@@ -275,28 +291,26 @@ export class NlbEcsStack extends cdk.Stack {
     // ────────────────────────────────────────────
     new cdk.CfnOutput(this, 'NlbDns', {
       value: nlb.loadBalancerDnsName,
-      description: 'NLB DNS name for ad platform callbacks',
-      exportName: 'AdsCallbackNlbDns',
+      description: `${platformName} NLB DNS`,
+      exportName: `${platformName}-NlbDns`,
     });
 
     new cdk.CfnOutput(this, 'NginxEcrUri', {
       value: nginxRepo.repositoryUri,
-      description: 'Nginx ECR repository URI',
+      description: `${platformName} Nginx ECR URI`,
     });
 
     new cdk.CfnOutput(this, 'VectorEcrUri', {
       value: vectorRepo.repositoryUri,
-      description: 'Vector ECR repository URI',
+      description: `${platformName} Vector ECR URI`,
     });
 
     new cdk.CfnOutput(this, 'ClusterName', {
       value: cluster.clusterName,
-      description: 'ECS cluster name',
     });
 
     new cdk.CfnOutput(this, 'ServiceName', {
       value: service.serviceName,
-      description: 'ECS service name',
     });
   }
 }

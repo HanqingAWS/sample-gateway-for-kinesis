@@ -17,11 +17,11 @@ services:
       context: ./docker/vector
       dockerfile: Dockerfile
     environment:
-      - KINESIS_REGION=ap-northeast-1
-      - KINESIS_STREAM_GUANGDIANTONG=guangdiantong_kinesis_stream
-      - KINESIS_STREAM_TOUTIAO=toutiao_kinesis_stream
-      - KINESIS_STREAM_TEST=guangdiantong_attribution_event
-      - AWS_REGION=ap-northeast-1
+      - KINESIS_REGION=${KINESIS_REGION:-ap-northeast-1}
+      - KINESIS_STREAM_NAME=${KINESIS_STREAM_NAME:-guangdiantong_attribution_event}
+      - AWS_REGION=${KINESIS_REGION:-ap-northeast-1}
+      - EBS_RETENTION_HOURS=${EBS_RETENTION_HOURS:-24}
+      - EBS_RECLAIM_PERCENT=${EBS_RECLAIM_PERCENT:-80}
     volumes:
       - vector-data:/var/lib/vector
     networks:

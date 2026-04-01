@@ -8,129 +8,251 @@ AWS API Gateway charges $3.50 per million requests. For high-volume ad attributi
 
 ## Architecture
 
+Each ad platform gets its own independent stack (NLB endpoint + ECS cluster + Kinesis stream). Multiple stacks can share the same VPC.
+
 ```
-Ad Platform (GET /guangdiantong?account_id=xxx&click_id=xxx&...)
+Ad Platform (GET /<path>?account_id=xxx&click_id=xxx&...)
         |
-   NLB (TCP:80)
+   NLB (TCP:80) ─── per-platform endpoint
         |
-   +--- ECS Fargate Task -----------------------------------+
-   |                                                         |
-   |  Nginx (OpenResty) :8080                                |
-   |    - Parse GET query string params                      |
-   |    - Lua: flatten to JSON (all values as strings)       |
-   |    - POST JSON to Vector                                |
-   |    - Return HTTP 200 immediately                        |
-   |         |                                               |
-   |         v                                               |
-   |  Vector :8686                                           |
-   |    - HTTP source receives JSON                          |
-   |    - Route transform: path -> Kinesis stream            |
-   |    - Disk buffer (EBS, disaster recovery)               |
-   |    - Kinesis PutRecords (batched)                       |
-   |                                                         |
-   |  [EBS Volume: /var/lib/vector, gp3]                     |
-   +---------------------------------------------------------+
+   +── ECS Fargate Task ×3 (4vCPU, 8GB, ARM64) ──+
+   |                                                |
+   |  Nginx (OpenResty) :8080                       |
+   |    - Parse GET query string params             |
+   |    - Lua: flatten to JSON (all strings)        |
+   |    - POST JSON to Vector via localhost          |
+   |    - Return HTTP 200 immediately               |
+   |         |                                      |
+   |         v                                      |
+   |  Vector :8686                                  |
+   |    - HTTP source receives JSON                 |
+   |    - Clean metadata fields                     |
+   |    - Disk buffer (EBS gp3, 1TB default)        |
+   |    - Kinesis PutRecords (batched)              |
+   |                                                |
+   |  [EBS gp3: /var/lib/vector, auto-reclaim]      |
+   +────────────────────────────────────────────────+
         |
-   Kinesis Streams -> Lambda Consumers (unchanged)
+   Kinesis Stream → Lambda Consumers (unchanged)
 ```
 
 ## Key Features
 
-- **Multi-stream routing**: Different URL paths (`/guangdiantong`, `/toutiao`, etc.) route to different Kinesis streams via Vector transforms
-- **Disk buffering**: EBS-backed buffer survives Kinesis outages; `when_full: block` provides backpressure
-- **Full compatibility**: 28/28 fields match API Gateway output; all values stored as strings, JSON arrays as string literals
-- **High throughput**: 21,968 QPS on 3 Fargate tasks (4c8g ARM64), ~5K QPS per task
-- **Low latency**: p50=6ms, p99=31ms; Nginx returns HTTP 200 immediately without waiting for Kinesis write
-- **CDK infrastructure**: Single `npx cdk deploy` creates all 49 AWS resources
+- **Multi-platform deployment**: One CDK stack per ad platform, same command to deploy/update, supports 4+ independent endpoints
+- **Existing VPC support**: Deploy into production VPC with `--vpc-id`, or auto-create a new VPC
+- **Disk buffering**: EBS-backed buffer (1TB default) survives Kinesis outages; auto-reclaim when disk > 80%; 24h data retention
+- **Full compatibility**: 28/28 fields match API Gateway output; all values stored as strings
+- **High throughput**: 21,968 QPS on 3 Fargate tasks (4c8g ARM64), 0 failed requests
+- **Low latency**: p50=6ms, p99=31ms
+- **One-command deploy**: `scripts/deploy.sh` handles npm install, CDK bootstrap, image build, and deploy
 
 ## Project Structure
 
 ```
-deploy/
-  cdk/
-    bin/app.ts          # CDK app entry point
-    lib/nlb-ecs-stack.ts # Main stack: VPC, NLB, ECS, EBS, IAM, VPC Endpoints
-    package.json        # CDK dependencies
-    tsconfig.json       # TypeScript config
-    cdk.json            # CDK config
+deploy/cdk/
+  bin/app.ts              # CDK app entry, reads env vars
+  lib/nlb-ecs-stack.ts    # Main stack: VPC/NLB/ECS/EBS/IAM/VPC Endpoints
+  package.json            # CDK dependencies
 docker/
   nginx/
-    Dockerfile          # OpenResty 1.25.3.2 + lua-resty-http v0.17.2
-    nginx.conf          # Worker config, init_by_lua for env vars
-    collect.lua         # Query string -> JSON -> POST to Vector
+    Dockerfile            # OpenResty 1.25.3.2 + lua-resty-http
+    nginx.conf            # Worker config, init_by_lua for env vars
+    collect.lua           # Query string → JSON → POST to Vector
   vector/
-    Dockerfile          # Vector 0.43.1 alpine
-    vector.toml         # HTTP source -> route -> clean -> Kinesis sinks
+    Dockerfile            # Vector 0.43.1 alpine + disk cleanup
+    vector.toml           # HTTP source → clean → Kinesis sink
+    entrypoint.sh         # Vector + background disk reclaim
 scripts/
-  build-and-push.sh     # Build ARM64 images, push to ECR
-docker-compose.yml      # Local/EC2 development setup
-test-report.html        # Comprehensive test & performance report
+  deploy.sh               # One-command deploy/update/destroy
+  check-vpc.sh            # Validate existing VPC readiness
+  build-and-push.sh       # Build ARM64 images, push to ECR
+docker-compose.yml        # Local development setup
+test-report.html          # Comprehensive test & performance report
 ```
 
-## Quick Start
-
-### Prerequisites
-
-- Docker & Docker Compose
-- AWS credentials with Kinesis access (IAM role or env vars)
-
-### Run Locally
+## Quick Start (Local Development)
 
 ```bash
-# Clone the repo
 git clone https://github.com/HanqingAWS/sample-gateway-for-kinesis.git
 cd sample-gateway-for-kinesis
 
-# Start services
+# Start with docker-compose
 docker-compose up --build -d
 
-# Test (replace with your Kinesis stream config)
+# Test
 curl "http://localhost:8080/test?account_id=123&click_id=abc"
 # => {"status":"ok"}
 ```
 
-### Environment Variables
+## Production Deployment (CDK)
 
-Configure Kinesis streams in `docker-compose.yml` or pass as environment variables:
+### Prerequisites
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `KINESIS_REGION` | AWS region | `ap-northeast-1` |
-| `KINESIS_STREAM_GUANGDIANTONG` | Tencent Ads stream | `guangdiantong_kinesis_stream` |
-| `KINESIS_STREAM_TOUTIAO` | ByteDance stream | `toutiao_kinesis_stream` |
-| `KINESIS_STREAM_TEST` | Test stream | `guangdiantong_attribution_event` |
-| `VPC_CIDR` | VPC CIDR block (CDK only) | `10.0.0.0/16` |
-| `ECS_DESIRED_COUNT` | Number of Fargate tasks | `3` |
-| `EBS_SIZE_GB` | EBS volume size per task | `50` |
+- AWS CLI configured with appropriate credentials
+- Docker (for building ARM64 images)
+- Node.js 18+ (CDK dependencies auto-installed by deploy script)
+
+### Deploy a Single Platform
+
+```bash
+./scripts/deploy.sh \
+  --stack-name GuangdiantongGateway \
+  --platform-name guangdiantong \
+  --kinesis-stream guangdiantong_kinesis_stream
+```
+
+This single command will:
+1. Auto-install CDK dependencies (`npm install`) if not present
+2. Auto-bootstrap CDK (`cdk bootstrap`) if not done
+3. Create a new VPC with all required VPC endpoints
+4. Deploy ECS Fargate cluster (3 tasks × 4vCPU 8GB ARM64)
+5. Build and push Docker images to ECR
+6. Output the NLB DNS endpoint
+
+### Deploy into Existing VPC
+
+For production environments, deploy into your existing VPC to share networking resources:
+
+```bash
+# Step 1: Validate VPC has required resources
+./scripts/check-vpc.sh --vpc-id vpc-0abc123def456
+
+# Step 2: Deploy (if check passes)
+./scripts/deploy.sh \
+  --stack-name GuangdiantongGateway \
+  --platform-name guangdiantong \
+  --kinesis-stream guangdiantong_kinesis_stream \
+  --vpc-id vpc-0abc123def456
+```
+
+The `check-vpc.sh` script validates:
+- Private subnets with NAT egress (≥ 2 AZs)
+- Kinesis Streams VPC Endpoint (Interface)
+- ECR API + Docker VPC Endpoints (Interface)
+- S3 VPC Endpoint (Gateway)
+- CloudWatch Logs VPC Endpoint (Interface)
+- DNS Support and DNS Hostnames enabled
+
+If any checks fail, it outputs the exact `aws ec2 create-vpc-endpoint` commands to fix them.
+
+### Deploy Multiple Platforms (4 Stacks Example)
+
+```bash
+# All 4 platforms share the same VPC
+VPC_ID="vpc-0abc123def456"
+
+# 1. Guangdiantong (Tencent Ads)
+./scripts/deploy.sh \
+  --stack-name GuangdiantongGateway \
+  --platform-name guangdiantong \
+  --kinesis-stream guangdiantong_kinesis_stream \
+  --vpc-id $VPC_ID
+
+# 2. Toutiao (ByteDance)
+./scripts/deploy.sh \
+  --stack-name ToutiaoGateway \
+  --platform-name toutiao \
+  --kinesis-stream toutiao_kinesis_stream \
+  --vpc-id $VPC_ID
+
+# 3. Kuaishou
+./scripts/deploy.sh \
+  --stack-name KuaishouGateway \
+  --platform-name kuaishou \
+  --kinesis-stream kuaishou_kinesis_stream \
+  --vpc-id $VPC_ID
+
+# 4. Baidu
+./scripts/deploy.sh \
+  --stack-name BaiduGateway \
+  --platform-name baidu \
+  --kinesis-stream baidu_kinesis_stream \
+  --vpc-id $VPC_ID
+```
+
+Each stack creates its own independent:
+- NLB (internet-facing endpoint)
+- ECS cluster + service
+- ECR repositories
+- EBS volumes
+- CloudWatch log group
+- IAM roles
+
+### Update Existing Stack
+
+Same command as deploy. CDK automatically detects changes and updates:
+
+```bash
+# Scale up to 5 tasks
+./scripts/deploy.sh \
+  --stack-name GuangdiantongGateway \
+  --platform-name guangdiantong \
+  --kinesis-stream guangdiantong_kinesis_stream \
+  --vpc-id vpc-0abc123 \
+  --ecs-count 5
+
+# Update with code changes (rebuilds Docker images)
+./scripts/deploy.sh \
+  --stack-name GuangdiantongGateway \
+  --platform-name guangdiantong \
+  --kinesis-stream guangdiantong_kinesis_stream \
+  --vpc-id vpc-0abc123
+```
+
+### Destroy a Stack
+
+```bash
+./scripts/deploy.sh \
+  --stack-name GuangdiantongGateway \
+  --platform-name guangdiantong \
+  --kinesis-stream guangdiantong_kinesis_stream \
+  --destroy
+```
+
+### All Parameters
+
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `--stack-name` | Yes | - | CloudFormation stack name |
+| `--platform-name` | Yes | - | Resource naming prefix (e.g., `guangdiantong`) |
+| `--kinesis-stream` | Yes | - | Target Kinesis stream name |
+| `--kinesis-region` | No | `ap-northeast-1` | AWS region |
+| `--vpc-id` | No | - | Existing VPC ID (creates new if omitted) |
+| `--vpc-cidr` | No | `10.0.0.0/16` | CIDR for new VPC (ignored with `--vpc-id`) |
+| `--ecs-count` | No | `3` | Desired ECS task count |
+| `--ebs-size` | No | `1000` | EBS volume size per task (GB) |
+| `--ebs-retention-hours` | No | `24` | Hours to retain data on disk buffer |
+| `--ebs-reclaim-percent` | No | `80` | Trigger disk cleanup when usage exceeds % |
+| `--skip-build` | No | `false` | Skip Docker image build/push |
+| `--destroy` | No | `false` | Destroy stack instead of deploy |
 
 ## How It Works
 
 1. **Nginx (OpenResty + Lua)** receives GET requests on port 8080
-2. `collect.lua` extracts all query string parameters, flattens them into a JSON object (all values as strings), and POSTs to Vector
-3. **Vector** receives the JSON, routes by URL path to the correct Kinesis stream, and writes via `PutRecords` with batching (500 events / 5MB / 1s)
-4. **Disk buffer** on EBS ensures data is not lost during Kinesis outages
+2. `collect.lua` extracts all query string parameters, flattens them into a JSON object (all values as strings), and POSTs to Vector via localhost
+3. **Vector** receives the JSON, cleans metadata fields, and writes to Kinesis via `PutRecords` with batching (500 events / 5MB / 1s)
+4. **Disk buffer** on EBS gp3 ensures data is not lost during Kinesis outages
+5. **Disk cleanup** background process auto-reclaims space when usage exceeds threshold (default: 80%), deleting data older than retention period (default: 24h)
 
-### Adding a New Stream
-
-1. Add a route condition in `vector.toml`:
-   ```toml
-   [transforms.route_by_path.route]
-   new_platform = '._route_path == "/new_platform"'
-   ```
-2. Add clean transform and Kinesis sink (copy existing pattern)
-3. Add `KINESIS_STREAM_NEW_PLATFORM` environment variable
-4. Redeploy
-
-## Cost Comparison (100M requests/month)
+## Cost Comparison (100M requests/month, per platform)
 
 | Component | API Gateway | NLB + ECS Fargate |
 |-----------|-------------|-------------------|
 | Request handling | $350 | NLB ~$16 |
 | Compute | included | Fargate 3×4c8g ARM ~$87 |
-| Storage | - | EBS 3×50GB gp3 ~$12 |
-| **Total** | **~$350/mo** | **~$115/mo (67% saving)** |
+| Storage | - | EBS 3×1TB gp3 ~$288 |
+| **Total** | **~$350/mo** | **~$391/mo** |
 
-At 1B requests/month: API Gateway = $3,500 vs NLB+ECS = ~$115 (97% saving). Cost is fixed regardless of request volume.
+> With 200GB EBS: ~$174/mo (50% saving). With 100GB EBS: ~$116/mo (67% saving).
+> At 1B requests/month: API Gateway = $3,500 vs NLB+ECS = same fixed cost.
+> EBS size should be chosen based on how long you need to buffer during Kinesis outages.
+
+| EBS Size | Buffer Duration @ Peak | Buffer Duration @ 30% Load | Monthly Cost (3 tasks) |
+|----------|----------------------|---------------------------|----------------------|
+| 100 GB | ~2 hrs | ~6.6 hrs | $28.80 |
+| 200 GB | ~4 hrs | ~13 hrs | $57.60 |
+| 500 GB | ~10 hrs | ~33 hrs | $144.00 |
+| 1 TB | ~20 hrs | ~66 hrs | $288.00 |
 
 ## Performance
 
@@ -148,45 +270,13 @@ Dual-process Apache Bench: 2 × 1M requests at 100 concurrency each.
 | ECS CPU Average | 17.7% (max 59.7%) |
 | ECS Memory Average | 1.8% |
 
-### EC2 Single-Node Baseline (t4g.xlarge, docker-compose)
-
-| Concurrency | QPS | p50 | p99 |
-|-------------|-----|-----|-----|
-| 100 | 4,922 | 19ms | 48ms |
-| 200 | 5,120 | 36ms | 91ms |
-
 ## Design Decisions
 
+- **Why one stack per platform?** Each ad platform gets its own NLB endpoint and Kinesis stream. Independent scaling, independent failure domains, independent cost tracking.
 - **Why Nginx + Lua (not Vector alone)?** Precise control over JSON serialization matching API Gateway VTL behavior. Nginx excels at handling many short-lived ad callback connections.
 - **Why Vector (not direct Kinesis SDK)?** Built-in disk buffering, batching, retry logic, and backpressure — production-grade reliability without custom code.
-- **Why EBS disk buffer?** Survives container restarts and Kinesis outages. 1TB gp3 can buffer ~15-50 hours of traffic depending on load.
-- **Why random partition keys?** Ensures even shard distribution. API Gateway used `$context.requestId` which is also effectively random.
-
-## Production Deployment (CDK)
-
-Infrastructure defined in TypeScript CDK (`deploy/cdk/`). Deploys 49 AWS resources:
-
-```bash
-cd deploy/cdk
-npm install
-npx cdk bootstrap   # First time only
-npx cdk deploy       # Creates all resources
-```
-
-Resources created:
-- **VPC** with 2 AZ, public/private subnets, 1 NAT Gateway
-- **VPC Endpoints**: Kinesis Streams, ECR, S3, CloudWatch Logs (avoid NAT costs)
-- **NLB** (internet-facing, TCP:80, cross-zone)
-- **ECS Fargate** (3 tasks × 4 vCPU 8GB ARM64, auto-scaling 3-10)
-- **EBS gp3** volumes for Vector disk buffer (per task)
-- **ECR** repositories for Nginx and Vector images
-- **IAM** roles with least-privilege Kinesis access
-
-### Build & Push Docker Images
-
-```bash
-./scripts/build-and-push.sh [REGION] [ACCOUNT_ID]
-```
+- **Why EBS disk buffer?** Survives container restarts and Kinesis outages. Auto-reclaim prevents disk full scenarios.
+- **Why existing VPC support?** Production environments already have VPCs with established networking, security groups, and VPN/peering. Creating isolated VPCs wastes IP space and complicates operations.
 
 ## Migration Strategy
 
