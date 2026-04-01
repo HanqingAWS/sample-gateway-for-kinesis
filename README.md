@@ -92,7 +92,14 @@ curl "http://localhost:8080/test?account_id=123&click_id=abc"
 - Docker (for building ARM64 images)
 - Node.js 18+ (CDK dependencies auto-installed by deploy script)
 
-### Deploy a Single Platform
+### Deploy with Defaults (Single Stack)
+
+```bash
+# All parameters optional — uses default stack name, platform name, and stream
+./scripts/deploy.sh
+```
+
+### Deploy a Specific Platform
 
 ```bash
 ./scripts/deploy.sh \
@@ -101,7 +108,7 @@ curl "http://localhost:8080/test?account_id=123&click_id=abc"
   --kinesis-stream guangdiantong_kinesis_stream
 ```
 
-This single command will:
+Either command will:
 1. Auto-install CDK dependencies (`npm install`) if not present
 2. Auto-bootstrap CDK (`cdk bootstrap`) if not done
 3. Create a new VPC with all required VPC endpoints
@@ -213,9 +220,9 @@ Same command as deploy. CDK automatically detects changes and updates:
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `--stack-name` | Yes | - | CloudFormation stack name |
-| `--platform-name` | Yes | - | Resource naming prefix (e.g., `guangdiantong`) |
-| `--kinesis-stream` | Yes | - | Target Kinesis stream name |
+| `--stack-name` | No | `AdsCallbackGatewayStack` | CloudFormation stack name |
+| `--platform-name` | No | `ads-callback` | Resource naming prefix (e.g., `guangdiantong`) |
+| `--kinesis-stream` | No | `guangdiantong_attribution_event` | Target Kinesis stream name |
 | `--kinesis-region` | No | `ap-northeast-1` | AWS region |
 | `--vpc-id` | No | - | Existing VPC ID (creates new if omitted) |
 | `--vpc-cidr` | No | `10.0.0.0/16` | CIDR for new VPC (ignored with `--vpc-id`) |

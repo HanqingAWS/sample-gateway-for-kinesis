@@ -10,12 +10,12 @@ usage() {
   cat <<EOF
 Usage: $0 [OPTIONS]
 
-Required:
-  --stack-name NAME         CloudFormation stack name (e.g., GuangdiantongGateway)
-  --platform-name NAME      Platform identifier, used for resource naming (e.g., guangdiantong)
-  --kinesis-stream NAME     Kinesis stream name (e.g., guangdiantong_kinesis_stream)
+All parameters are optional. Defaults deploy a single stack named "AdsCallbackGatewayStack".
 
-Optional:
+Options:
+  --stack-name NAME         CloudFormation stack name (default: AdsCallbackGatewayStack)
+  --platform-name NAME      Platform identifier for resource naming (default: ads-callback)
+  --kinesis-stream NAME     Kinesis stream name (default: guangdiantong_attribution_event)
   --kinesis-region REGION   Kinesis/deploy region (default: ap-northeast-1)
   --vpc-id VPC_ID           Use existing VPC (skip VPC creation). Run check-vpc.sh first.
   --vpc-cidr CIDR           VPC CIDR for new VPC (default: 10.0.0.0/16, ignored if --vpc-id set)
@@ -27,7 +27,10 @@ Optional:
   --destroy                 Destroy the stack instead of deploying
 
 Examples:
-  # Deploy with new VPC
+  # Deploy single stack with all defaults
+  $0
+
+  # Deploy with custom platform
   $0 --stack-name GuangdiantongGateway \\
      --platform-name guangdiantong \\
      --kinesis-stream guangdiantong_kinesis_stream
@@ -48,9 +51,9 @@ EOF
 }
 
 # ── Parse arguments ──
-STACK_NAME=""
-PLATFORM_NAME=""
-KINESIS_STREAM=""
+STACK_NAME="AdsCallbackGatewayStack"
+PLATFORM_NAME="ads-callback"
+KINESIS_STREAM="guangdiantong_attribution_event"
 KINESIS_REGION="ap-northeast-1"
 VPC_ID=""
 VPC_CIDR="10.0.0.0/16"
@@ -80,12 +83,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ── Validate required args ──
-if [[ -z "$STACK_NAME" || -z "$PLATFORM_NAME" || -z "$KINESIS_STREAM" ]]; then
-  echo "Error: --stack-name, --platform-name, and --kinesis-stream are required."
-  echo ""
-  usage
-fi
+# ── No required args — all have defaults ──
 
 # ── Resolve paths ──
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
