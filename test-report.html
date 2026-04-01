@@ -521,8 +521,8 @@ tbody tr:hover { background: var(--bg-card-hover); }
   </div>
   <div class="stat-card amber">
     <div class="stat-label">Cost Saving</div>
-    <div class="stat-value amber">~67%</div>
-    <div class="stat-sub">$350 &rarr; $115 / month</div>
+    <div class="stat-value amber">98.1%</div>
+    <div class="stat-sub">&yen;490,861 &rarr; &yen;9,398 / month</div>
   </div>
   <div class="stat-card cyan">
     <div class="stat-label">p50 Latency</div>
@@ -880,50 +880,130 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 <!-- Cost -->
 <div class="card">
-  <h2><span class="icon icon-amber">$</span> Cost Comparison <span class="badge badge-info">100M requests/month</span></h2>
+  <h2><span class="icon icon-amber">&yen;</span> Cost Comparison <span class="badge badge-info">cn-northwest-1 &middot; 259.2 billion req/month</span></h2>
+  <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">
+    Production workload: average 3M requests per 5 minutes (10,000 QPS), 2KB per request, 30 days/month.<br>
+    Region: <strong style="color:var(--text-primary)">cn-northwest-1</strong> (Ningxia, operated by NWCD).
+  </p>
   <div class="cost-grid">
     <div class="cost-box old">
-      <div class="cost-title">API Gateway (Current)</div>
-      <div class="cost-amount">$350</div>
-      <div class="cost-detail">
-        Request handling: $350/month<br>
-        (100M &times; $3.50/M)<br>
-        Compute: included
+      <div class="cost-title">API Gateway REST API (Current)</div>
+      <div class="cost-amount">&yen;490,861</div>
+      <div class="cost-detail" style="text-align:left; line-height:1.8;">
+        Total: 259.2 billion requests/month<br>
+        Tiered pricing (REST API):
       </div>
     </div>
     <div class="cost-box new">
       <div class="cost-title">NLB + ECS Fargate (3 tasks)</div>
-      <div class="cost-amount">$115</div>
-      <div class="cost-detail">
-        NLB: ~$16/month (fixed + LCU)<br>
-        Fargate 3&times;4c8g ARM: ~$87/month<br>
-        EBS 3&times;50GB gp3: ~$12/month
+      <div class="cost-amount">&yen;9,398</div>
+      <div class="cost-detail" style="text-align:left; line-height:1.8;">
+        Fargate 3&times;4c8g: &yen;3,938.50<br>
+        NLB (fixed + LCU): &yen;4,082.16<br>
+        EBS 3&times;1TB gp3: &yen;1,377.00
       </div>
     </div>
   </div>
   <div class="cost-saving">
-    Monthly saving: <span>~$235 (67%)</span><br>
+    Monthly saving: <span>&yen;481,463 (98.1%)</span><br>
     <span style="font-size:13px; color:var(--text-secondary); font-weight:400;">
-      At 1B requests/month: API Gateway = $3,500 vs NLB+ECS = ~$115 (97% saving). Cost is fixed regardless of request volume.
+      ECS cost is fixed regardless of request volume. API Gateway cost scales linearly with traffic.
     </span>
   </div>
 
-  <div style="margin-top:16px;">
-    <div class="diff-title">Fargate Pricing Breakdown (ap-northeast-1, ARM64/Graviton)</div>
+  <!-- API Gateway tiered pricing breakdown -->
+  <div style="margin-top:20px;">
+    <div class="diff-title">API Gateway REST API Tiered Pricing (cn-northwest-1)</div>
     <table style="font-size:12px; margin-top:8px;">
-      <thead><tr><th>Component</th><th>Unit Price</th><th>Per Task</th><th>3 Tasks/Month</th></tr></thead>
+      <thead><tr><th>Tier</th><th>Requests</th><th>Unit Price (&yen;/M)</th><th>Cost (&yen;)</th></tr></thead>
       <tbody>
-        <tr><td class="val">vCPU (4 vCPU)</td><td class="val">$0.01334976/hr</td><td class="val">$0.05340/hr</td><td class="val">$115.33</td></tr>
-        <tr><td class="val">Memory (8 GB)</td><td class="val">$0.00146286/hr</td><td class="val">$0.01170/hr</td><td class="val">$25.27</td></tr>
-        <tr><td class="val">EBS gp3 (50 GB)</td><td class="val">$0.096/GB/mo</td><td class="val">$4.80/mo</td><td class="val">$14.40</td></tr>
-        <tr><td class="val">NLB (fixed + LCU)</td><td class="val">$0.0243/hr + LCU</td><td class="val" colspan="2">~$16/mo</td></tr>
+        <tr><td class="val">First 333M</td><td class="val">333,000,000</td><td class="val">28.94</td><td class="val" style="text-align:right">&yen;9,637.02</td></tr>
+        <tr><td class="val">Next 667M</td><td class="val">667,000,000</td><td class="val">24.04</td><td class="val" style="text-align:right">&yen;16,034.68</td></tr>
+        <tr><td class="val">Next 19B</td><td class="val">19,000,000,000</td><td class="val">20.43</td><td class="val" style="text-align:right">&yen;388,170.00</td></tr>
+        <tr><td class="val">Over 20B</td><td class="val">5,920,000,000</td><td class="val">13.01</td><td class="val" style="text-align:right">&yen;77,019.20</td></tr>
         <tr style="border-top:1px solid var(--border);">
-          <td class="val" style="color:var(--accent-green); font-weight:600;">Total</td>
-          <td class="val"></td><td class="val"></td>
-          <td class="val" style="color:var(--accent-green); font-weight:600; font-size:14px;">~$115/mo</td>
+          <td class="val" style="color:var(--accent-red); font-weight:600;">Total</td>
+          <td class="val" style="font-weight:600;">25,920,000,000</td>
+          <td class="val"></td>
+          <td class="val" style="color:var(--accent-red); font-weight:600; text-align:right; font-size:14px;">&yen;490,860.90</td>
         </tr>
       </tbody>
     </table>
+  </div>
+
+  <!-- ECS pricing breakdown -->
+  <div style="margin-top:20px;">
+    <div class="diff-title">NLB + ECS Fargate Pricing Breakdown (cn-northwest-1)</div>
+    <table style="font-size:12px; margin-top:8px;">
+      <thead><tr><th>Component</th><th>Unit Price</th><th>Quantity</th><th>Monthly Cost (&yen;)</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="val" style="font-weight:500; color:var(--text-primary);">Fargate vCPU</td>
+          <td class="val">&yen;0.3688/vCPU-hr</td>
+          <td class="val">3 tasks &times; 4 vCPU &times; 730 hrs</td>
+          <td class="val" style="text-align:right">&yen;3,228.86</td>
+        </tr>
+        <tr>
+          <td class="val" style="font-weight:500; color:var(--text-primary);">Fargate Memory</td>
+          <td class="val">&yen;0.0404/GB-hr</td>
+          <td class="val">3 tasks &times; 8 GB &times; 730 hrs</td>
+          <td class="val" style="text-align:right">&yen;709.63</td>
+        </tr>
+        <tr>
+          <td class="val" style="font-weight:500; color:var(--text-primary);">EBS gp3 Storage</td>
+          <td class="val">&yen;0.459/GB-mo</td>
+          <td class="val">3 tasks &times; 1,000 GB</td>
+          <td class="val" style="text-align:right">&yen;1,377.00</td>
+        </tr>
+        <tr>
+          <td class="val" style="font-weight:500; color:var(--text-primary);">NLB Fixed</td>
+          <td class="val">&yen;0.156/hr</td>
+          <td class="val">730 hrs</td>
+          <td class="val" style="text-align:right">&yen;113.88</td>
+        </tr>
+        <tr>
+          <td class="val" style="font-weight:500; color:var(--text-primary);">NLB LCU</td>
+          <td class="val">&yen;0.072/LCU-hr</td>
+          <td class="val">75.5 LCU &times; 730 hrs</td>
+          <td class="val" style="text-align:right">&yen;3,968.28</td>
+        </tr>
+        <tr style="border-top:1px solid var(--border);">
+          <td class="val" style="color:var(--accent-green); font-weight:600;">Total</td>
+          <td class="val"></td>
+          <td class="val"></td>
+          <td class="val" style="color:var(--accent-green); font-weight:600; text-align:right; font-size:14px;">&yen;9,397.66</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="font-size:11px; color:var(--text-dim); margin-top:10px; line-height:1.6;">
+      NLB LCU: highest dimension = processed bytes. 10,000 QPS &times; ~2.2KB &times; 3600s = 75.5 GB/hr &rarr; 75.5 LCU (1 LCU = 1 GB/hr TCP).<br>
+      Fargate pricing is Linux/x86. If Graviton (ARM64) is available in cn-northwest-1, costs would be ~20% lower.
+    </div>
+  </div>
+
+  <!-- Comparison summary -->
+  <div style="margin-top:20px;">
+    <div class="diff-title">Cost Comparison Summary</div>
+    <table style="font-size:12px; margin-top:8px;">
+      <thead><tr><th>Scenario</th><th>API Gateway (&yen;/月)</th><th>NLB + ECS (&yen;/月)</th><th>Saving</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="val">1 platform (current)</td>
+          <td class="val" style="color:var(--accent-red); text-align:right">490,861</td>
+          <td class="val" style="color:var(--accent-green); text-align:right">9,398</td>
+          <td class="val" style="color:var(--accent-green); font-weight:600;">98.1%</td>
+        </tr>
+        <tr>
+          <td class="val">4 platforms (planned)</td>
+          <td class="val" style="color:var(--accent-red); text-align:right">1,963,444</td>
+          <td class="val" style="color:var(--accent-green); text-align:right">37,591</td>
+          <td class="val" style="color:var(--accent-green); font-weight:600;">98.1%</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="font-size:11px; color:var(--text-dim); margin-top:8px;">
+      4 platforms assume same traffic volume per platform. NLB + ECS cost is per stack.
+    </div>
   </div>
 </div>
 
