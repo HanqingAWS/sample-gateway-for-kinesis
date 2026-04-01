@@ -521,8 +521,8 @@ tbody tr:hover { background: var(--bg-card-hover); }
   </div>
   <div class="stat-card amber">
     <div class="stat-label">Cost Saving</div>
-    <div class="stat-value amber">98.1%</div>
-    <div class="stat-sub">&yen;490,861 &rarr; &yen;9,398 / month</div>
+    <div class="stat-value amber">92.3%</div>
+    <div class="stat-sub">&yen;490,861 &rarr; &yen;37,591 / 4 platforms</div>
   </div>
   <div class="stat-card cyan">
     <div class="stat-label">p50 Latency</div>
@@ -880,10 +880,10 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 <!-- Cost -->
 <div class="card">
-  <h2><span class="icon icon-amber">&yen;</span> Cost Comparison <span class="badge badge-info">cn-northwest-1 &middot; 259.2 billion req/month</span></h2>
+  <h2><span class="icon icon-amber">&yen;</span> Cost Comparison <span class="badge badge-info">cn-northwest-1 &middot; 4 platforms &middot; 259.2B req/month</span></h2>
   <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">
-    Production workload: average 3M requests per 5 minutes (10,000 QPS), 2KB per request, 30 days/month.<br>
-    Region: <strong style="color:var(--text-primary)">cn-northwest-1</strong> (Ningxia, operated by NWCD).
+    Production workload: 4 ad platforms sharing the same traffic volume, average 3M requests per 5 minutes (10,000 QPS total), 2KB per request, 30 days/month.<br>
+    Region: <strong style="color:var(--text-primary)">cn-northwest-1</strong> (Ningxia, operated by NWCD). API Gateway cost is for all 4 platforms combined.
   </p>
   <div class="cost-grid">
     <div class="cost-box old">
@@ -905,9 +905,9 @@ tbody tr:hover { background: var(--bg-card-hover); }
     </div>
   </div>
   <div class="cost-saving">
-    Monthly saving: <span>&yen;481,463 (98.1%)</span><br>
+    Monthly saving (4 platforms): <span>&yen;453,270 (92.3%)</span><br>
     <span style="font-size:13px; color:var(--text-secondary); font-weight:400;">
-      ECS cost is fixed regardless of request volume. API Gateway cost scales linearly with traffic.
+      API Gateway: &yen;490,861 (4 platforms total) vs ECS: &yen;9,398 &times; 4 = &yen;37,591. ECS cost is fixed regardless of request volume.
     </span>
   </div>
 
@@ -988,21 +988,21 @@ tbody tr:hover { background: var(--bg-card-hover); }
       <thead><tr><th>Scenario</th><th>API Gateway (&yen;/月)</th><th>NLB + ECS (&yen;/月)</th><th>Saving</th></tr></thead>
       <tbody>
         <tr>
-          <td class="val">1 platform (current)</td>
-          <td class="val" style="color:var(--accent-red); text-align:right">490,861</td>
+          <td class="val">1 platform (per stack)</td>
+          <td class="val" style="text-align:right">&mdash;</td>
           <td class="val" style="color:var(--accent-green); text-align:right">9,398</td>
-          <td class="val" style="color:var(--accent-green); font-weight:600;">98.1%</td>
+          <td class="val" style="color:var(--text-dim);">&mdash;</td>
         </tr>
         <tr>
-          <td class="val">4 platforms (planned)</td>
-          <td class="val" style="color:var(--accent-red); text-align:right">1,963,444</td>
-          <td class="val" style="color:var(--accent-green); text-align:right">37,591</td>
-          <td class="val" style="color:var(--accent-green); font-weight:600;">98.1%</td>
+          <td class="val" style="font-weight:600; color:var(--text-primary);">4 platforms (total)</td>
+          <td class="val" style="color:var(--accent-red); text-align:right; font-weight:600;">490,861</td>
+          <td class="val" style="color:var(--accent-green); text-align:right; font-weight:600;">37,591</td>
+          <td class="val" style="color:var(--accent-green); font-weight:600;">92.3%</td>
         </tr>
       </tbody>
     </table>
     <div style="font-size:11px; color:var(--text-dim); margin-top:8px;">
-      4 platforms assume same traffic volume per platform. NLB + ECS cost is per stack.
+      API Gateway &yen;490,861 is the total cost for all 4 platforms combined (259.2B requests/month). ECS cost is &yen;9,398 per stack &times; 4.
     </div>
   </div>
 </div>
