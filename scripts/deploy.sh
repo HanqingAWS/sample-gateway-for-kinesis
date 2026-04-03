@@ -2,21 +2,22 @@
 set -euo pipefail
 
 # ──────────────────────────────────────────
-# Deploy / Update CDK stack for ad platform gateway
-# Same command for initial deploy and updates
+# Deploy / Update CDK stack for ad callback gateway
+# One ECS cluster serves multiple ad platforms via path-based routing
 # ──────────────────────────────────────────
 
 usage() {
   cat <<EOF
-Usage: $0 [OPTIONS]
+Usage: $0 --stack-name NAME --gateway-name NAME --route /PATH:STREAM [OPTIONS]
 
-All parameters are optional. Defaults deploy a single stack named "AdsCallbackGatewayStack".
+Required:
+  --stack-name NAME         CloudFormation stack name (e.g., AdsCallbackGateway)
+  --gateway-name NAME       Gateway identifier for resource naming (e.g., ads-gateway)
+  --route /PATH:STREAM      Path-to-Kinesis-stream mapping (repeatable)
+                            e.g., --route /guangdiantong:gdt_stream --route /toutiao:tt_stream
 
-Options:
-  --stack-name NAME         CloudFormation stack name (default: AdsCallbackGatewayStack)
-  --platform-name NAME      Platform identifier for resource naming (default: ads-callback)
-  --kinesis-stream NAME     Kinesis stream name (default: guangdiantong_attribution_event)
-  --kinesis-region REGION   Kinesis/deploy region (default: ap-northeast-1)
+Optional:
+  --kinesis-region REGION   AWS region (default: ap-northeast-1)
   --vpc-id VPC_ID           Use existing VPC (skip VPC creation). Run check-vpc.sh first.
   --vpc-cidr CIDR           VPC CIDR for new VPC (default: 10.0.0.0/16, ignored if --vpc-id set)
   --ecs-count N             Desired ECS task count (default: 3)
@@ -27,33 +28,32 @@ Options:
   --destroy                 Destroy the stack instead of deploying
 
 Examples:
-  # Deploy single stack with all defaults
-  $0
-
-  # Deploy with custom platform
-  $0 --stack-name GuangdiantongGateway \\
-     --platform-name guangdiantong \\
-     --kinesis-stream guangdiantong_kinesis_stream
-
-  # Deploy into existing VPC
-  $0 --stack-name ToutiaoGateway \\
-     --platform-name toutiao \\
-     --kinesis-stream toutiao_kinesis_stream \\
+  # Deploy with multiple ad platforms (one cluster handles all)
+  $0 --stack-name AdsCallbackGateway \\
+     --gateway-name ads-gateway \\
+     --route /guangdiantong:guangdiantong_kinesis_stream \\
+     --route /toutiao:toutiao_kinesis_stream \\
+     --route /kuaishou:kuaishou_kinesis_stream \\
+     --route /baidu:baidu_kinesis_stream \\
      --vpc-id vpc-0abc123def456
 
-  # Update existing stack (same command)
-  $0 --stack-name GuangdiantongGateway \\
-     --platform-name guangdiantong \\
-     --kinesis-stream guangdiantong_kinesis_stream \\
-     --ecs-count 5
+  # Update routes (add a new platform)
+  $0 --stack-name AdsCallbackGateway \\
+     --gateway-name ads-gateway \\
+     --route /guangdiantong:guangdiantong_kinesis_stream \\
+     --route /toutiao:toutiao_kinesis_stream \\
+     --route /kuaishou:kuaishou_kinesis_stream \\
+     --route /baidu:baidu_kinesis_stream \\
+     --route /unity:unity_kinesis_stream \\
+     --skip-build
 EOF
   exit 1
 }
 
 # ── Parse arguments ──
-STACK_NAME="AdsCallbackGatewayStack"
-PLATFORM_NAME="ads-callback"
-KINESIS_STREAM="guangdiantong_attribution_event"
+STACK_NAME=""
+GATEWAY_NAME=""
+ROUTES=()
 KINESIS_REGION="ap-northeast-1"
 VPC_ID=""
 VPC_CIDR="10.0.0.0/16"
@@ -67,8 +67,8 @@ DESTROY=false
 while [[ $# -gt 0 ]]; do
   case $1 in
     --stack-name)       STACK_NAME="$2"; shift 2 ;;
-    --platform-name)    PLATFORM_NAME="$2"; shift 2 ;;
-    --kinesis-stream)   KINESIS_STREAM="$2"; shift 2 ;;
+    --gateway-name)     GATEWAY_NAME="$2"; shift 2 ;;
+    --route)            ROUTES+=("$2"); shift 2 ;;
     --kinesis-region)   KINESIS_REGION="$2"; shift 2 ;;
     --vpc-id)           VPC_ID="$2"; shift 2 ;;
     --vpc-cidr)         VPC_CIDR="$2"; shift 2 ;;
@@ -83,7 +83,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ── No required args — all have defaults ──
+# ── Validate required arguments ──
+if [[ -z "$STACK_NAME" || -z "$GATEWAY_NAME" ]]; then
+  echo "Error: --stack-name and --gateway-name are required."
+  echo ""
+  usage
+fi
+
+if [[ ${#ROUTES[@]} -eq 0 && "$DESTROY" == "false" ]]; then
+  echo "Error: at least one --route is required for deployment."
+  echo ""
+  usage
+fi
+
+# Build ROUTE_MAP string: /path1:stream1,/path2:stream2
+ROUTE_MAP=$(IFS=','; echo "${ROUTES[*]}")
 
 # ── Resolve paths ──
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -92,9 +106,12 @@ CDK_DIR="$PROJECT_DIR/deploy/cdk"
 
 echo "=============================="
 echo "Stack:     $STACK_NAME"
-echo "Platform:  $PLATFORM_NAME"
-echo "Stream:    $KINESIS_STREAM"
+echo "Gateway:   $GATEWAY_NAME"
 echo "Region:    $KINESIS_REGION"
+echo "Routes:"
+for r in "${ROUTES[@]}"; do
+  echo "  $r"
+done
 if [[ -n "$VPC_ID" ]]; then
   echo "VPC:       $VPC_ID (existing)"
 else
@@ -132,8 +149,8 @@ if [[ "$DESTROY" == "true" ]]; then
   echo "=== Destroying stack: $STACK_NAME ==="
   cd "$CDK_DIR"
   STACK_NAME="$STACK_NAME" \
-  PLATFORM_NAME="$PLATFORM_NAME" \
-  KINESIS_STREAM_NAME="$KINESIS_STREAM" \
+  GATEWAY_NAME="$GATEWAY_NAME" \
+  ROUTE_MAP="$ROUTE_MAP" \
   KINESIS_REGION="$KINESIS_REGION" \
   VPC_ID="$VPC_ID" \
   VPC_CIDR="$VPC_CIDR" \
@@ -154,19 +171,18 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
   echo "=== Building and pushing Docker images ==="
   ECR_BASE="${ACCOUNT_ID}.dkr.ecr.${KINESIS_REGION}.amazonaws.com"
 
-  # Check if ECR repos exist (they're created by CDK, may not exist on first deploy)
-  if aws ecr describe-repositories --repository-names "${PLATFORM_NAME}-nginx" --region "$KINESIS_REGION" &>/dev/null; then
+  if aws ecr describe-repositories --repository-names "${GATEWAY_NAME}-nginx" --region "$KINESIS_REGION" &>/dev/null; then
     echo "ECR repos exist, building images..."
     aws ecr get-login-password --region "$KINESIS_REGION" | docker login --username AWS --password-stdin "$ECR_BASE"
 
-    docker build --platform linux/arm64 -t "${PLATFORM_NAME}-nginx:latest" -f "$PROJECT_DIR/docker/nginx/Dockerfile" "$PROJECT_DIR/docker/nginx/"
-    docker build --platform linux/arm64 -t "${PLATFORM_NAME}-vector:latest" -f "$PROJECT_DIR/docker/vector/Dockerfile" "$PROJECT_DIR/docker/vector/"
+    docker build --platform linux/arm64 -t "${GATEWAY_NAME}-nginx:latest" -f "$PROJECT_DIR/docker/nginx/Dockerfile" "$PROJECT_DIR/docker/nginx/"
+    docker build --platform linux/arm64 -t "${GATEWAY_NAME}-vector:latest" -f "$PROJECT_DIR/docker/vector/Dockerfile" "$PROJECT_DIR/docker/vector/"
 
-    docker tag "${PLATFORM_NAME}-nginx:latest" "${ECR_BASE}/${PLATFORM_NAME}-nginx:latest"
-    docker tag "${PLATFORM_NAME}-vector:latest" "${ECR_BASE}/${PLATFORM_NAME}-vector:latest"
+    docker tag "${GATEWAY_NAME}-nginx:latest" "${ECR_BASE}/${GATEWAY_NAME}-nginx:latest"
+    docker tag "${GATEWAY_NAME}-vector:latest" "${ECR_BASE}/${GATEWAY_NAME}-vector:latest"
 
-    docker push "${ECR_BASE}/${PLATFORM_NAME}-nginx:latest"
-    docker push "${ECR_BASE}/${PLATFORM_NAME}-vector:latest"
+    docker push "${ECR_BASE}/${GATEWAY_NAME}-nginx:latest"
+    docker push "${ECR_BASE}/${GATEWAY_NAME}-vector:latest"
   else
     echo "ECR repos not found. Will deploy CDK first, then build images."
   fi
@@ -178,8 +194,8 @@ echo "=== Deploying CDK stack: $STACK_NAME ==="
 cd "$CDK_DIR"
 
 STACK_NAME="$STACK_NAME" \
-PLATFORM_NAME="$PLATFORM_NAME" \
-KINESIS_STREAM_NAME="$KINESIS_STREAM" \
+GATEWAY_NAME="$GATEWAY_NAME" \
+ROUTE_MAP="$ROUTE_MAP" \
 KINESIS_REGION="$KINESIS_REGION" \
 VPC_ID="$VPC_ID" \
 VPC_CIDR="$VPC_CIDR" \
@@ -194,25 +210,25 @@ CDK_DEFAULT_REGION="$KINESIS_REGION" \
 # ── If images weren't built yet (first deploy), build now ──
 if [[ "$SKIP_BUILD" == "false" ]]; then
   ECR_BASE="${ACCOUNT_ID}.dkr.ecr.${KINESIS_REGION}.amazonaws.com"
-  if ! docker image inspect "${PLATFORM_NAME}-nginx:latest" &>/dev/null; then
+  if ! docker image inspect "${GATEWAY_NAME}-nginx:latest" &>/dev/null; then
     echo ""
     echo "=== Building and pushing Docker images (post-CDK) ==="
     aws ecr get-login-password --region "$KINESIS_REGION" | docker login --username AWS --password-stdin "$ECR_BASE"
 
-    docker build --platform linux/arm64 -t "${PLATFORM_NAME}-nginx:latest" -f "$PROJECT_DIR/docker/nginx/Dockerfile" "$PROJECT_DIR/docker/nginx/"
-    docker build --platform linux/arm64 -t "${PLATFORM_NAME}-vector:latest" -f "$PROJECT_DIR/docker/vector/Dockerfile" "$PROJECT_DIR/docker/vector/"
+    docker build --platform linux/arm64 -t "${GATEWAY_NAME}-nginx:latest" -f "$PROJECT_DIR/docker/nginx/Dockerfile" "$PROJECT_DIR/docker/nginx/"
+    docker build --platform linux/arm64 -t "${GATEWAY_NAME}-vector:latest" -f "$PROJECT_DIR/docker/vector/Dockerfile" "$PROJECT_DIR/docker/vector/"
 
-    docker tag "${PLATFORM_NAME}-nginx:latest" "${ECR_BASE}/${PLATFORM_NAME}-nginx:latest"
-    docker tag "${PLATFORM_NAME}-vector:latest" "${ECR_BASE}/${PLATFORM_NAME}-vector:latest"
+    docker tag "${GATEWAY_NAME}-nginx:latest" "${ECR_BASE}/${GATEWAY_NAME}-nginx:latest"
+    docker tag "${GATEWAY_NAME}-vector:latest" "${ECR_BASE}/${GATEWAY_NAME}-vector:latest"
 
-    docker push "${ECR_BASE}/${PLATFORM_NAME}-nginx:latest"
-    docker push "${ECR_BASE}/${PLATFORM_NAME}-vector:latest"
+    docker push "${ECR_BASE}/${GATEWAY_NAME}-nginx:latest"
+    docker push "${ECR_BASE}/${GATEWAY_NAME}-vector:latest"
 
     echo ""
     echo "=== Restarting ECS service to pick up new images ==="
     aws ecs update-service \
-      --cluster "${PLATFORM_NAME}-gateway" \
-      --service "${PLATFORM_NAME}-gateway" \
+      --cluster "${GATEWAY_NAME}-cluster" \
+      --service "${GATEWAY_NAME}-service" \
       --force-new-deployment \
       --region "$KINESIS_REGION" \
       --query 'service.serviceName' --output text
@@ -230,5 +246,12 @@ aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='NlbDns'].OutputValue" \
   --output text
 echo ""
-echo "Test: curl http://<NLB_DNS>/health"
+echo "Routes: $ROUTE_MAP"
+echo ""
+echo "Test:"
+for r in "${ROUTES[@]}"; do
+  path="${r%%:*}"
+  echo "  curl http://<NLB_DNS>${path}?account_id=123&click_id=test"
+done
+echo "  curl http://<NLB_DNS>/health"
 echo "=============================="

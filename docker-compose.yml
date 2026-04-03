@@ -9,6 +9,9 @@ services:
       - "8080:8080"
     depends_on:
       - vector
+    environment:
+      - VECTOR_HOST=vector
+      - VECTOR_PORT=8686
     networks:
       - gateway-net
 
@@ -18,10 +21,13 @@ services:
       dockerfile: Dockerfile
     environment:
       - KINESIS_REGION=${KINESIS_REGION:-ap-northeast-1}
-      - KINESIS_STREAM_NAME=${KINESIS_STREAM_NAME:-guangdiantong_attribution_event}
+      # Multi-stream routing: /path:stream_name,...
+      # Example: /guangdiantong:gdt_stream,/toutiao:tt_stream
+      - ROUTE_MAP=${ROUTE_MAP:-/guangdiantong:guangdiantong_attribution_event,/toutiao:toutiao_attribution_event}
       - AWS_REGION=${KINESIS_REGION:-ap-northeast-1}
       - EBS_RETENTION_HOURS=${EBS_RETENTION_HOURS:-24}
       - EBS_RECLAIM_PERCENT=${EBS_RECLAIM_PERCENT:-80}
+      - VECTOR_BUFFER_MAX_SIZE=${VECTOR_BUFFER_MAX_SIZE:-858993459200}
     volumes:
       - vector-data:/var/lib/vector
     networks:

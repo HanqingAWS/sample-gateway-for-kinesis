@@ -521,8 +521,8 @@ tbody tr:hover { background: var(--bg-card-hover); }
   </div>
   <div class="stat-card amber">
     <div class="stat-label">Cost Saving</div>
-    <div class="stat-value amber">92.3%</div>
-    <div class="stat-sub">&yen;490,861 &rarr; &yen;37,591 / 4 platforms</div>
+    <div class="stat-value amber">97.2%</div>
+    <div class="stat-sub">&yen;490,861 &rarr; &yen;13,609 / 4 platforms</div>
   </div>
   <div class="stat-card cyan">
     <div class="stat-label">p50 Latency</div>
@@ -896,18 +896,19 @@ tbody tr:hover { background: var(--bg-card-hover); }
     </div>
     <div class="cost-box new">
       <div class="cost-title">NLB + ECS Fargate (3 tasks)</div>
-      <div class="cost-amount">&yen;9,398</div>
+      <div class="cost-amount">&yen;13,609</div>
       <div class="cost-detail" style="text-align:left; line-height:1.8;">
         Fargate 3&times;4c8g: &yen;3,938.50<br>
         NLB (fixed + LCU): &yen;4,082.16<br>
-        EBS 3&times;1TB gp3: &yen;1,377.00
+        EBS 3&times;1TB gp3: &yen;1,377.00<br>
+        VPC Endpoint (Kinesis): &yen;4,211
       </div>
     </div>
   </div>
   <div class="cost-saving">
-    Monthly saving (4 platforms): <span>&yen;453,270 (92.3%)</span><br>
+    Monthly saving (4 platforms): <span>&yen;477,252 (97.2%)</span><br>
     <span style="font-size:13px; color:var(--text-secondary); font-weight:400;">
-      API Gateway: &yen;490,861 (4 platforms total) vs ECS: &yen;9,398 &times; 4 = &yen;37,591. ECS cost is fixed regardless of request volume.
+      API Gateway: &yen;490,861 (4 platforms total) vs ECS: &yen;13,609 (1 ECS serves all 4 platforms). ECS cost is fixed regardless of request volume.
     </span>
   </div>
 
@@ -968,15 +969,38 @@ tbody tr:hover { background: var(--bg-card-hover); }
           <td class="val" style="text-align:right">&yen;3,968.28</td>
         </tr>
         <tr style="border-top:1px solid var(--border);">
-          <td class="val" style="color:var(--accent-green); font-weight:600;">Total</td>
+          <td class="val" style="color:var(--accent-green); font-weight:600;">Per Stack Subtotal</td>
           <td class="val"></td>
           <td class="val"></td>
           <td class="val" style="color:var(--accent-green); font-weight:600; text-align:right; font-size:14px;">&yen;9,397.66</td>
+        </tr>
+        <tr style="border-top:1px dashed var(--border);">
+          <td class="val" colspan="3" style="color:var(--text-dim); font-style:italic;">VPC Endpoint (Kinesis Streams) &mdash; shared across all stacks in same VPC</td>
+          <td class="val"></td>
+        </tr>
+        <tr>
+          <td class="val" style="font-weight:500; color:var(--text-primary);">Endpoint Hour</td>
+          <td class="val">&yen;0.072/endpoint-AZ-hr</td>
+          <td class="val">1 endpoint &times; 2 AZ &times; 730 hrs</td>
+          <td class="val" style="text-align:right">&yen;105.12</td>
+        </tr>
+        <tr>
+          <td class="val" style="font-weight:500; color:var(--text-primary);">Data Processing</td>
+          <td class="val">&yen;0.072/GB</td>
+          <td class="val">10K QPS &times; 2.2KB &times; 30d = 57,024 GB</td>
+          <td class="val" style="text-align:right">&yen;4,105.73</td>
+        </tr>
+        <tr style="border-top:1px solid var(--border);">
+          <td class="val" style="color:var(--accent-green); font-weight:600;">VPC Endpoint Total</td>
+          <td class="val"></td>
+          <td class="val"></td>
+          <td class="val" style="color:var(--accent-green); font-weight:600; text-align:right; font-size:14px;">&yen;4,210.85</td>
         </tr>
       </tbody>
     </table>
     <div style="font-size:11px; color:var(--text-dim); margin-top:10px; line-height:1.6;">
       NLB LCU: highest dimension = processed bytes. 10,000 QPS &times; ~2.2KB &times; 3600s = 75.5 GB/hr &rarr; 75.5 LCU (1 LCU = 1 GB/hr TCP).<br>
+      VPC Endpoint (Kinesis): data processing = all Kinesis traffic through endpoint (10K QPS &times; 2.2KB &times; 86,400s &times; 30d &asymp; 57 TB/mo).<br>
       Fargate pricing is Linux/x86. If Graviton (ARM64) is available in cn-northwest-1, costs would be ~20% lower.
     </div>
   </div>
@@ -988,21 +1012,15 @@ tbody tr:hover { background: var(--bg-card-hover); }
       <thead><tr><th>Scenario</th><th>API Gateway (&yen;/月)</th><th>NLB + ECS (&yen;/月)</th><th>Saving</th></tr></thead>
       <tbody>
         <tr>
-          <td class="val">1 platform (per stack)</td>
-          <td class="val" style="text-align:right">&mdash;</td>
-          <td class="val" style="color:var(--accent-green); text-align:right">9,398</td>
-          <td class="val" style="color:var(--text-dim);">&mdash;</td>
-        </tr>
-        <tr>
           <td class="val" style="font-weight:600; color:var(--text-primary);">4 platforms (total)</td>
           <td class="val" style="color:var(--accent-red); text-align:right; font-weight:600;">490,861</td>
-          <td class="val" style="color:var(--accent-green); text-align:right; font-weight:600;">37,591</td>
-          <td class="val" style="color:var(--accent-green); font-weight:600;">92.3%</td>
+          <td class="val" style="color:var(--accent-green); text-align:right; font-weight:600;">13,609</td>
+          <td class="val" style="color:var(--accent-green); font-weight:600;">97.2%</td>
         </tr>
       </tbody>
     </table>
     <div style="font-size:11px; color:var(--text-dim); margin-top:8px;">
-      API Gateway &yen;490,861 is the total cost for all 4 platforms combined (259.2B requests/month). ECS cost is &yen;9,398 per stack &times; 4.
+      API Gateway &yen;490,861 is the total cost for all 4 platforms combined (259.2B requests/month). ECS: &yen;13,609 (1 ECS serves all 4 platforms, includes VPC Endpoint cost).
     </div>
   </div>
 </div>

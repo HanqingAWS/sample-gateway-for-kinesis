@@ -8,8 +8,8 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 
 export interface NlbEcsStackProps extends cdk.StackProps {
-  platformName: string;
-  kinesisStreamName: string;
+  gatewayName: string;
+  routeMap: Record<string, string>;  // path prefix -> Kinesis stream name
   kinesisRegion: string;
   vpcId?: string;
   vpcCidr?: string;
@@ -24,8 +24,8 @@ export class NlbEcsStack extends cdk.Stack {
     super(scope, id, props);
 
     const {
-      platformName,
-      kinesisStreamName,
+      gatewayName,
+      routeMap,
       kinesisRegion,
       vpcId,
       vpcCidr,
@@ -35,17 +35,16 @@ export class NlbEcsStack extends cdk.Stack {
       ebsReclaimPercent,
     } = props;
 
+    const streamNames = Object.values(routeMap);
+
     // ────────────────────────────────────────────
     // VPC: import existing or create new
     // ────────────────────────────────────────────
     let vpc: ec2.IVpc;
 
     if (vpcId) {
-      // Import existing VPC — assumes it already has required subnets and VPC endpoints
-      // Run scripts/check-vpc.sh to validate before deploying
       vpc = ec2.Vpc.fromLookup(this, 'ImportedVpc', { vpcId });
     } else {
-      // Create new VPC with all required endpoints
       const newVpc = new ec2.Vpc(this, 'GatewayVpc', {
         ipAddresses: ec2.IpAddresses.cidr(vpcCidr || '10.0.0.0/16'),
         maxAzs: 2,
@@ -64,7 +63,6 @@ export class NlbEcsStack extends cdk.Stack {
         ],
       });
 
-      // VPC Endpoints
       newVpc.addInterfaceEndpoint('KinesisEndpoint', {
         service: ec2.InterfaceVpcEndpointAwsService.KINESIS_STREAMS,
       });
@@ -85,16 +83,16 @@ export class NlbEcsStack extends cdk.Stack {
     }
 
     // ────────────────────────────────────────────
-    // ECR Repositories
+    // ECR Repositories (shared, not per-platform)
     // ────────────────────────────────────────────
     const nginxRepo = new ecr.Repository(this, 'NginxRepo', {
-      repositoryName: `${platformName}-nginx`,
+      repositoryName: `${gatewayName}-nginx`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       emptyOnDelete: true,
     });
 
     const vectorRepo = new ecr.Repository(this, 'VectorRepo', {
-      repositoryName: `${platformName}-vector`,
+      repositoryName: `${gatewayName}-vector`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       emptyOnDelete: true,
     });
@@ -104,7 +102,7 @@ export class NlbEcsStack extends cdk.Stack {
     // ────────────────────────────────────────────
     const cluster = new ecs.Cluster(this, 'GatewayCluster', {
       vpc,
-      clusterName: `${platformName}-gateway`,
+      clusterName: `${gatewayName}-cluster`,
       containerInsights: true,
     });
 
@@ -112,7 +110,7 @@ export class NlbEcsStack extends cdk.Stack {
     // CloudWatch Log Group
     // ────────────────────────────────────────────
     const logGroup = new logs.LogGroup(this, 'GatewayLogGroup', {
-      logGroupName: `/ecs/${platformName}-gateway`,
+      logGroupName: `/ecs/${gatewayName}`,
       retention: logs.RetentionDays.TWO_WEEKS,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
@@ -123,14 +121,14 @@ export class NlbEcsStack extends cdk.Stack {
     const taskDef = new ecs.FargateTaskDefinition(this, 'GatewayTaskDef', {
       memoryLimitMiB: 8192,
       cpu: 4096,
-      family: `${platformName}-gateway`,
+      family: `${gatewayName}`,
       runtimePlatform: {
         operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
       },
     });
 
-    // Task Role: Kinesis access
+    // Task Role: Kinesis access for ALL streams in routeMap
     taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: [
         'kinesis:PutRecords',
@@ -139,9 +137,9 @@ export class NlbEcsStack extends cdk.Stack {
         'kinesis:DescribeStreamSummary',
         'kinesis:ListShards',
       ],
-      resources: [
-        `arn:aws:kinesis:${kinesisRegion}:${this.account}:stream/${kinesisStreamName}`,
-      ],
+      resources: streamNames.map(
+        (s) => `arn:aws:kinesis:${kinesisRegion}:${this.account}:stream/${s}`,
+      ),
     }));
 
     // EBS Volume for Vector disk buffer
@@ -153,13 +151,18 @@ export class NlbEcsStack extends cdk.Stack {
         fileSystemType: ecs.FileSystemType.EXT4,
         tagSpecifications: [{
           tags: {
-            Name: `${platformName}-vector-data`,
+            Name: `${gatewayName}-vector-data`,
           },
           propagateTags: ecs.EbsPropagatedTagSource.SERVICE,
         }],
       },
     });
     taskDef.addVolume(volume);
+
+    // Build ROUTE_MAP env var: /path1:stream1,/path2:stream2
+    const routeMapEnv = Object.entries(routeMap)
+      .map(([path, stream]) => `${path}:${stream}`)
+      .join(',');
 
     // Nginx container (1 vCPU, 2 GB)
     const nginxContainer = taskDef.addContainer('nginx', {
@@ -192,7 +195,7 @@ export class NlbEcsStack extends cdk.Stack {
       }),
       environment: {
         KINESIS_REGION: kinesisRegion,
-        KINESIS_STREAM_NAME: kinesisStreamName,
+        ROUTE_MAP: routeMapEnv,
         AWS_REGION: kinesisRegion,
         VECTOR_LOG: 'info',
         EBS_RETENTION_HOURS: String(ebsRetentionHours),
@@ -214,7 +217,7 @@ export class NlbEcsStack extends cdk.Stack {
     // ────────────────────────────────────────────
     const serviceSg = new ec2.SecurityGroup(this, 'ServiceSg', {
       vpc,
-      description: `Security group for ${platformName} gateway ECS tasks`,
+      description: `Security group for ${gatewayName} ECS tasks`,
       allowAllOutbound: true,
     });
     serviceSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(8080), 'NLB health check and traffic');
@@ -226,7 +229,7 @@ export class NlbEcsStack extends cdk.Stack {
       vpc,
       internetFacing: true,
       crossZoneEnabled: true,
-      loadBalancerName: `${platformName}-nlb`,
+      loadBalancerName: `${gatewayName}-nlb`,
     });
 
     // ────────────────────────────────────────────
@@ -241,7 +244,7 @@ export class NlbEcsStack extends cdk.Stack {
       assignPublicIp: false,
       circuitBreaker: { enable: true, rollback: true },
       healthCheckGracePeriod: cdk.Duration.seconds(60),
-      serviceName: `${platformName}-gateway`,
+      serviceName: `${gatewayName}-service`,
     });
 
     service.addVolume(volume);
@@ -291,18 +294,16 @@ export class NlbEcsStack extends cdk.Stack {
     // ────────────────────────────────────────────
     new cdk.CfnOutput(this, 'NlbDns', {
       value: nlb.loadBalancerDnsName,
-      description: `${platformName} NLB DNS`,
-      exportName: `${platformName}-NlbDns`,
+      description: 'Gateway NLB DNS',
+      exportName: `${gatewayName}-NlbDns`,
     });
 
     new cdk.CfnOutput(this, 'NginxEcrUri', {
       value: nginxRepo.repositoryUri,
-      description: `${platformName} Nginx ECR URI`,
     });
 
     new cdk.CfnOutput(this, 'VectorEcrUri', {
       value: vectorRepo.repositoryUri,
-      description: `${platformName} Vector ECR URI`,
     });
 
     new cdk.CfnOutput(this, 'ClusterName', {
@@ -311,6 +312,11 @@ export class NlbEcsStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'ServiceName', {
       value: service.serviceName,
+    });
+
+    new cdk.CfnOutput(this, 'RouteMap', {
+      value: routeMapEnv,
+      description: 'Path-to-stream routing',
     });
   }
 }
